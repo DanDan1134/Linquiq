@@ -1,0 +1,133 @@
+.page {
+  min-height: 100%;
+  max-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  box-sizing: border-box;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(211, 211, 211, 0.12);
+  position: sticky;
+  top: 0;
+  background: rgba(42, 46, 62, 0.95);
+  backdrop-filter: blur(8px);
+  z-index: 1;
+}
+
+.logo {
+  height: 28px;
+  width: auto;
+  object-fit: contain;
+}
+
+.homeLink {
+  color: var(--bundle-color-2);
+  text-decoration: none;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.homeLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.main {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.title {
+  margin: 0 0 0.5rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #f5f5f5;
+  letter-spacing: -0.02em;
+}
+
+.meta {
+  margin: 0 0 2rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  opacity: 0.8;
+}
+
+.meta a,
+.section a {
+  color: var(--bundle-color-2);
+  text-decoration: none;
+}
+
+.meta a:hover,
+.section a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.section {
+  margin-bottom: 1.75rem;
+}
+
+.section h2 {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: #f0f0f0;
+}
+
+.section p,
+.section li {
+  margin: 0 0 0.65rem;
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  color: rgba(211, 211, 211, 0.92);
+}
+
+.section ul {
+  margin: 0 0 0.65rem;
+  padding-left: 1.25rem;
+}
+
+.section li {
+  margin-bottom: 0.35rem;
+}
+
+.section strong {
+  color: #ebebeb;
+  font-weight: 600;
+}
+
+.footer {
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(211, 211, 211, 0.12);
+  font-size: 0.75rem;
+  color: var(--bundle-color-2);
+  opacity: 0.85;
+}
+
+@media (max-width: 600px) {
+  .header {
+    padding: 1rem;
+  }
+
+  .main {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .title {
+    font-size: 1.5rem;
+  }
+}

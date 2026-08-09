@@ -1,0 +1,124 @@
+import { apiGet, apiDelete } from './client';
+import { dedupe } from '../utils/inflight';
+import { getCachedUrl, setCachedUrl } from '../utils/urlCache';
+
+type ServerFileRow = {
+  id?: string;
+  file_id?: string;
+  creator_id?: string;
+  creator_email?: string;
+  createdAt?: string;
+  type?: string;
+  name?: string;
+  description?: string | null;
+  /** Presigned GET when the list endpoint includes it (often omitted — see FileCard bootstrap). */
+  url?: string | null;
+};
+
+export type UiFile = {
+  id: string;            // server UUID
+  name: string;
+  type: string;
+  contentType?: string;
+  createdAt?: string;
+  creator?: string;
+  url?: string | null;
+};
+
+function mapServerRow(row: ServerFileRow): UiFile {
+  const id = String(row.id ?? '');
+  const rawUrl = row.url != null ? String(row.url).trim() : '';
+  return {
+    id,
+    name: row.name ?? 'Untitled',
+    type: String(row.type ?? '').toLowerCase(),
+    contentType: row.type,
+    createdAt: row.createdAt,
+    creator: row.creator_email ?? row.creator_id ?? '',
+    url: rawUrl.length > 0 ? rawUrl : null,
+  };
+}
+
+/** Fetch all files for the current user */
+export async function getAll(): Promise<UiFile[]> {
+  const payload = await apiGet<{ data?: ServerFileRow[] }>(`/files`);
+  const rows = payload?.data ?? [];
+  return rows.map(mapServerRow);
+}
+
+/** Fresh presigned URL for a file (UUID) — cached in-memory (5 min TTL) + deduped. */
+export async function getById(id: string): Promise<{ url: string; type?: string; name?: string }> {
+  // Optimistic IDs (opt-...) are local placeholders with no server record yet.
+  if (String(id).startsWith('opt-')) {
+    throw new Error(`getById: skipping optimistic id ${id}`);
+  }
+
+  // Serve from cache when still fresh
+  const cached = getCachedUrl(id);
+  if (cached) return { url: cached.url, type: cached.type, name: cached.name };
+
+  // Deduplicate concurrent callers waiting for the same id
+  return dedupe(`getById:${id}`, async () => {
+    const payload = await apiGet<any>(`/files/url/${id}`);
+    const url = payload?.url ?? null;
+    const type = payload?.type ?? undefined;
+    const name = payload?.name ?? undefined;
+    if (!url) throw new Error('No preview URL returned by /api/files/url/:id');
+    setCachedUrl(id, { url, type, name });
+    return { url, type, name };
+  });
+}
+
+/**
+ * Delete many by server UUID. Calls DELETE /api/files/:id per id (same as web and
+ * deleteFileById). The old /api/file/delete batch route is not available on production.
+ */
+export async function deleteFiles(fileIds: string[]): Promise<{ okay: boolean }> {
+  const ids = fileIds.map((x) => String(x).trim()).filter(Boolean);
+  if (!ids.length) return { okay: true };
+  const results = await Promise.allSettled(ids.map((id) => deleteFileById(id)));
+  const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+  if (failed.length === ids.length) {
+    throw failed[0]?.reason ?? new Error("deleteFiles: all deletes failed");
+  }
+  return { okay: true };
+}
+
+/** DELETE /api/files/:file_id — matches Next.js web (one id per request). */
+export async function deleteFileById(
+  fileId: string
+): Promise<{ okay: boolean; message?: string }> {
+  const id = encodeURIComponent(String(fileId).trim());
+  if (!id) throw new Error("Missing file id");
+  return apiDelete<{ okay: boolean; message?: string }>(`/files/${id}`);
+}
+
+export type SearchHitFile = ServerFileRow & Record<string, unknown>;
+
+export type SearchHitRow = {
+  file: SearchHitFile;
+  matchedIn: "name" | "content" | "linked-content";
+  snippet: string | null;
+  matchedChildName?: string;
+};
+
+/** GET /api/files/search?q=… — Bearer auth via api client (same as list/upload). */
+export async function searchFiles(query: string): Promise<SearchHitRow[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const path = `/files/search?q=${encodeURIComponent(q)}`;
+  const payload = await apiGet<{ data?: SearchHitRow[] }>(path);
+  return Array.isArray(payload?.data) ? payload.data : [];
+}
+
+/** Fetch note content from a presigned URL */
+export async function getNoteContent(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (res.ok) return await res.text();
+    return null;
+  } catch (err) {
+    console.warn('Failed to fetch note content:', err);
+    return null;
+  }
+}

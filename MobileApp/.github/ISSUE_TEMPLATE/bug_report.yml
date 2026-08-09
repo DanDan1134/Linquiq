@@ -1,0 +1,81 @@
+name: Bug Report
+description: Report a defect in existing code or behavior
+title: "<Problem title / short summary>"
+labels: [Bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please fill all required fields.
+  - type: textarea
+    id: description
+    attributes:
+      label: Detailed Description
+      description: What is happening? Add context.
+      placeholder: When I try to upload a .pdf file, I get an error "Unsupported file type".
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Numbered reproducible steps.
+      placeholder: |
+        1. Build and run project
+        2. Try to upload a .pdf file using the upload button on the main page
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      placeholder: File uploads successfully without error, success message shown.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior / Output
+      render: shell
+      placeholder: |
+        Error: Unsupported file type
+        at uploadFile (uploader.js:45)
+        at HTMLButtonElement.onclick (index.html:23)
+    validations:
+      required: true
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed Fix (Optional)
+      placeholder: Update file type validation to include .pdf files.
+  # - type: textarea
+  #   id: environment
+  #   attributes:
+  #     label: Environment
+  #     description: OS, compiler/runtime, branch.
+  #     value: |
+  #       OS:
+  #       Compiler/Runtime:
+  #       Branch:
+  #   validations:
+  #     required: true
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Impact / Severity
+      options:
+        - label: Crash / data loss
+        - label: Incorrect output
+        - label: Performance degradation
+        - label: Cosmetic / minor
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Reporter Checklist
+      options:
+        - label: I searched existing issues
+          required: true
+        - label: I can reproduce consistently
+          required: true
+        - label: I attached relevant logs
+          required: true

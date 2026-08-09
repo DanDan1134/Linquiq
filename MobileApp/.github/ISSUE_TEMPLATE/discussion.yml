@@ -1,0 +1,44 @@
+name: Discussion / Design Topic
+description: Start a technical / conceptual discussion
+title: "<discussion topic>"
+labels: [Discussion]
+body:
+  - type: input
+    id: topic
+    attributes:
+      label: Topic
+      placeholder: Dynamic priority boosting strategy
+    validations:
+      required: true
+  - type: textarea
+    id: background
+    attributes:
+      label: Background
+  - type: textarea
+    id: options
+    attributes:
+      label: Options / Approaches
+      placeholder: |
+        1. Aging every tick
+        2. Boost after starvation threshold
+        3. Hybrid token bucket
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Evaluation Criteria
+  - type: textarea
+    id: open_questions
+    attributes:
+      label: Open Questions
+      placeholder: |
+        - Impact on fairness?
+        - Extra memory required?
+  - type: textarea
+    id: tentative
+    attributes:
+      label: Tentative Decision (Fill later)
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      placeholder: Paper links, docs, prior art

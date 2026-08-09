@@ -1,0 +1,26 @@
+name: Feature Request
+description: Suggest a new enhancement or capability
+title: "<short description of the feature>"
+labels: [Feature]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      placeholder: Create a dynamic search field in the header bar. The search should filter results in real-time.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation / Rationale
+      description: Why is this needed?
+      placeholder: Many users have difficulty finding specific items in long lists.
+    validations:
+      required: true
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Proposed Implementation
+      description: Inputs, outputs, side effects.
+      placeholder: Implement a text input field in the header that listens for input events and filters the displayed items based on the search query.

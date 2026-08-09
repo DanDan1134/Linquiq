@@ -1,0 +1,56 @@
+name: Documentation Improvement
+description: Request an addition, correction, or enhancement to project documentation (README, wiki, design docs)
+title: "<short description of the documentation change>"
+labels: [Documentation]
+body:
+  - type: input
+    id: scope
+    attributes:
+      label: Scope / Area
+      placeholder: README / memory subsystem design doc / contribution guide
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current State
+      description: Briefly summarize the existing wording or the gap.
+      placeholder: The README on scheduler design lacks explanation of priority inversion handling.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed Update
+      description: What should be added / clarified / restructured?
+      placeholder: Add a section describing how priority inheritance prevents starvation in mutex locking.
+    validations:
+      required: true
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Rationale / Benefit
+      description: Why does this improvement matter? Who benefits?
+      placeholder: Clarifies design trade-offs for new contributors and reduces repeated Q&A.
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References / Sources (Optional)
+      placeholder: Links to papers, internal notes, prior issues.
+  - type: textarea
+    id: related
+    attributes:
+      label: Related Issues / PRs
+      placeholder: Issue #42 (feature adding priority inheritance), PR #77 (mutex refactor)
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Reporter Checklist
+      options:
+        - label: I searched existing issues for similar documentation requests
+          required: true
+        - label: I confirmed this is not already covered elsewhere
+          required: true
+        - label: I can help draft the change (optional commitment)

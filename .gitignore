@@ -1,0 +1,42 @@
+# OS / editor
+.DS_Store
+.cursor/
+*.pem
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Mobile (Expo)
+MobileApp/.expo/
+MobileApp/dist/
+MobileApp/web-build/
+
+# Web (Next.js)
+Web/.next/
+Web/out/
+Web/build/
+Web/coverage/
+Web/.vercel/
+Web/.clerk/
+Web/redis/
+Web/data/
+Web/*.tsbuildinfo
+Web/next-env.d.ts
+
+# Logs / debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

@@ -1,0 +1,90 @@
+
+
+/* .tag {
+    width: 8rem;
+    padding: 0.2rem 0rem;
+    height: fit-content;
+    border-radius: 0.25rem;
+    text-align: center;
+} */
+
+.tag {
+    display: flex;
+
+    gap: 1rem;
+    align-items: center;
+    justify-content: center;
+
+
+}
+
+
+
+.tag .marker {
+    width: 0.5rem;
+    min-width: 0.5rem;
+    height: 0.5rem;
+    min-height: 0.5rem;
+    border-radius: 0.5rem;
+}
+
+.tag .text {
+    overflow: hidden;
+    width: 100%;
+    transition: width 0.2s ease-in-out;
+}
+
+.tag .text.small {
+    width: 0%;
+    transition: width 0.2s ease-in-out;
+}
+
+@media (width < 768px) {
+    .tag .text:not(.scaling) {
+        width: 0%;
+        transition: width 0.1s ease-in-out;
+    }
+}
+
+.bundle {
+    color: var(--bundle-color-2);
+}
+
+.bundle > .marker {
+    background-color: var(--bundle-color-2);
+}
+
+.doc {
+    color: var(--doc-color-2);
+}
+.doc > .marker {
+    background-color: var(--doc-color-2);
+}
+
+.note {
+    color: var(--note-color-2);
+}
+
+.note > .marker {
+    background-color: var(--note-color-2);
+}
+
+.img {
+    color: var(--img-color-2);
+}
+
+.img > .marker {
+    background-color: var(--img-color-2);
+}
+
+.marker {
+    color: var(--rec-color-2);
+}
+
+.rec > .marker {
+    background-color: var(--rec-color-2);
+}
+
+.rec {
+    color: var(--rec-color-2);
+}

@@ -1,0 +1,27 @@
+name: Task
+description: Track a unit of work (refactor, docs, infra)
+title: "<short description of the task>"
+labels: [Task]
+body:
+  - type: input
+    id: objective
+    attributes:
+      label: Objective
+      placeholder: Research and propose a Database solution
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details / Subtasks
+      placeholder: |
+        - [ ] Research database options
+        - [ ] Compare pros/cons
+        - [ ] Write summary report
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      placeholder: |
+        * Summary report submitted to project repo
+        * Solution chosen and approved by team
