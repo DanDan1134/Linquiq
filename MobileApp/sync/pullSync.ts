@@ -201,8 +201,8 @@ export async function pullAndMerge(): Promise<{
   const now = Date.now();
 
   for (const f of localFiles) {
-    // Skip opt- (optimistic) ids — they haven't been assigned a server id yet
-    if (String(f.id).startsWith('opt-')) {
+    // Skip legacy opt- placeholders and pending client-UUID uploads
+    if (String(f.id).startsWith('opt-') || f.dirty === 1) {
       continue;
     }
     if (outboxFileIds.has(String(f.id))) continue;
@@ -215,7 +215,7 @@ export async function pullAndMerge(): Promise<{
     }
   }
   for (const b of localBundles) {
-    if (String(b.id).startsWith('opt-')) {
+    if (String(b.id).startsWith('opt-') || b.dirty === 1) {
       continue;
     }
     if (outboxBundleIds.has(String(b.id))) continue;

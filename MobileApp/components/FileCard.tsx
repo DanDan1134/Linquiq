@@ -167,7 +167,7 @@ const FileCardBase: React.FC<FileCardProps> = ({
   // have an https source before full download or list-thumb file exists.
   useEffect(() => {
     const id = String(file.id ?? "").trim();
-    if (!id || id.startsWith("opt-")) return;
+    if (!id || id.startsWith("opt-") || Number((file as any).dirty) === 1) return;
     if (String(file.local_uri ?? "").trim()) return;
     if (String(diskThumbUri ?? "").trim()) return;
     if (/^https?:\/\//i.test(String(file.url ?? "").trim())) return;
@@ -377,7 +377,8 @@ const FileCardBase: React.FC<FileCardProps> = ({
                 if (
                   !urlRefreshAttempted.current &&
                   idStr &&
-                  !idStr.startsWith("opt-")
+                  !idStr.startsWith("opt-") &&
+                  Number((file as any).dirty) !== 1
                 ) {
                   urlRefreshAttempted.current = true;
                   void filesApi

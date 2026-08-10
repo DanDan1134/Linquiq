@@ -15,6 +15,10 @@ type BaseLinqProps = {
   createdAt?: string | number | Date | null;
   date?: string | null;
   creator?: string | null;
+  /** Pending local upload — URL shown but not clickable yet. */
+  dirty?: number | boolean | null;
+  /** Device network online — link opens only when true. */
+  isOnline?: boolean;
 };
 
 /** Label column width — keeps every value left-aligned in the dense layout. */
@@ -46,16 +50,27 @@ export function MetadataRow({
 
 /**
  * Shows `https://…/preview/{id}` whenever an id exists.
- * Live (server) ids are tappable; pending opt- ids show the same URL as plain text.
+ * UUID ids show the final URL offline; clickable only when synced + online.
  */
-function MetadataUrlRow({ fileId }: { fileId?: string | null }) {
+function MetadataUrlRow({
+  fileId,
+  dirty,
+  isOnline,
+}: {
+  fileId?: string | null;
+  dirty?: number | boolean | null;
+  isOnline?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   const id = String(fileId ?? "").trim();
   if (!id) return null;
 
   const urlLabel = getFilePreviewUrlLabel(id);
   const liveUrl = getFilePreviewUrl(id);
-  const isLive = isFilePreviewUrlLive(id);
+  const isLive = isFilePreviewUrlLive(id, {
+    dirty: dirty ?? undefined,
+    isOnline,
+  });
 
   const handleCopy = () => {
     const toCopy = liveUrl || urlLabel;
@@ -114,7 +129,11 @@ function MetadataBody(props: BaseLinqProps & { displayName?: string }) {
       {displayName ? <MetadataRow label="Name" value={displayName} /> : null}
       <MetadataRow label="Created" value={f.created} />
       <MetadataRow label="Creator" value={f.creator} />
-      <MetadataUrlRow fileId={rest.id} />
+      <MetadataUrlRow
+        fileId={rest.id}
+        dirty={rest.dirty}
+        isOnline={rest.isOnline}
+      />
       <MetadataRow label="File ID" value={f.fileId} />
       <MetadataRow label="UTC" value={f.utc} />
     </View>

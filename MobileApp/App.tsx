@@ -75,6 +75,8 @@ import {
   deriveNoteUploadFileName,
   truncateNameForLog,
   deriveLinqTitleFromFiles,
+  newLocalFileId,
+  isLegacyOptId,
 } from "./utils/helpers";
 import { logPerf, logLinqOpenStep, idSuffixForLog, track } from "./utils/perfLog";
 import {
@@ -360,10 +362,10 @@ async function separateBundlesAndFiles(allItems: any[]): Promise<{
 /**
  * Merge server `raw` with SQLite-merged rows so dirty / local-only ids stay in the enrichment input.
  *
- * @param pendingOptIds  opt- ids currently sitting in the outbox (still uploading).
- *   When the server is available (raw.length > 0) and an opt- item is NOT in this set,
- *   we skip it — the upload finished and markFileSynced will rename the row shortly,
- *   so showing the opt- item alongside the server item would produce a duplicate.
+ * @param pendingOptIds  local ids currently sitting in the outbox (still uploading).
+ *   When the server is available (raw.length > 0) and a dirty item is NOT in this set,
+ *   we skip it — the upload finished and markFileSynced will clear dirty shortly,
+ *   so showing the pending item alongside the server item would produce a duplicate.
  */
 function mergeRawWithMergedLists(
   raw: any[],
@@ -406,11 +408,11 @@ function mergeRawWithMergedLists(
     if (!id) return;
     const dirty = local.dirty === 1;
 
-    // When the server is reachable and this is a dirty opt- item, only include it
+    // When the server is reachable and this is a dirty pending upload, only include it
     // if it still has a pending outbox job.  If the upload already completed,
-    // markFileSynced will rename the row imminently — showing it now would create
-    // a duplicate alongside the server item that already has the real id.
-    if (dirty && id.startsWith("opt-") && raw.length > 0 && pendingOptIds) {
+    // markFileSynced will clear dirty (and keep the same UUID id) — showing it now
+    // would create a duplicate alongside the server item.
+    if (dirty && raw.length > 0 && pendingOptIds) {
       if (!pendingOptIds.has(id)) return;
     }
 
@@ -420,7 +422,8 @@ function mergeRawWithMergedLists(
     }
     // During online sync, don't re-add clean server ids that are absent from raw.
     // Those were deleted on web (or another device) and should disappear locally.
-    if (raw.length > 0 && !id.startsWith("opt-") && !byId.has(id)) {
+    // Legacy opt- / never-synced placeholders are still kept when offline (raw empty).
+    if (raw.length > 0 && !isLegacyOptId(id) && !byId.has(id)) {
       return;
     }
     if (!byId.has(id)) {
@@ -774,8 +777,9 @@ function bundleChildRowsAreDisplayReady(files: any[] | undefined): boolean {
     }
     const idStr = String(file?.id ?? "").trim();
     if (!idStr) continue;
-    // Local-first rows keep opt- ids until upload; url/local_uri may already be a file:// path.
-    if (idStr.startsWith("opt-")) {
+    // Local-first rows may use UUID (preferred) or legacy opt- ids until upload;
+    // url/local_uri may already be a file:// path.
+    if (idStr.startsWith("opt-") || file?.dirty === 1) {
       if (bundleLeafNeedsPlayableOrPreviewUrl(file)) {
         if (!bundleLeafHasReadableUri(file)) return false;
       }
@@ -1724,7 +1728,7 @@ const filteredFiles = useMemo(() => {
         if (!uri) throw new Error("No audio file URI from recorder.");
 
         const fileName = getDefaultFileName("audio", ".mp3");
-        const localId = `opt-${Date.now()}`;
+        const localId = newLocalFileId();
 
         // Save locally first (copies to persistent storage + enqueues upload)
         const { localUri } = await saveLocal({
@@ -1989,11 +1993,12 @@ const filteredFiles = useMemo(() => {
 
     let cancelled = false;
     (async () => {
-      const isOptimistic = (id: any) => String(id ?? "").startsWith("opt-");
+      const isOptimistic = (f: any) =>
+        isLegacyOptId(f?.id) || f?.dirty === 1;
       const topLevelNotes: any[] = userFiles.filter(
         (f: any) =>
           f?.id != null &&
-          !isOptimistic(f.id) &&
+          !isOptimistic(f) &&
           isNoteFile(f) &&
           !(f.content && String(f.content).trim() !== "") &&
           !fetchedNoteContentIds.current.has(String(f.id))
@@ -2002,7 +2007,7 @@ const filteredFiles = useMemo(() => {
       for (const bundle of bundles) {
         if (!bundle.files?.length) continue;
         for (const file of bundle.files) {
-          if (!file?.id || isOptimistic(file.id) || !isNoteFile(file)) continue;
+          if (!file?.id || isOptimistic(file) || !isNoteFile(file)) continue;
           if (file.content && String(file.content).trim() !== "") continue;
           if (fetchedNoteContentIds.current.has(String(file.id))) continue;
           nestedNotes.push({ bundleId: bundle.id, file });
@@ -2017,7 +2022,7 @@ const filteredFiles = useMemo(() => {
       const fetchOne = async (file: any): Promise<string | null> => {
         if (cancelled) return null;
         // Skip optimistic placeholders — they have no real server record yet
-        if (isOptimistic(file.id)) return null;
+        if (isOptimistic(file)) return null;
         try {
           let url = file.url;
           if (file.id != null) {
@@ -2132,7 +2137,11 @@ const filteredFiles = useMemo(() => {
 
       const netState = await NetInfo.fetch();
       const id = String(merged?.id ?? "").trim();
-      const canSyncThisFile = id !== "" && !id.startsWith("opt-") && !!netState.isConnected;
+      const canSyncThisFile =
+        id !== "" &&
+        !isLegacyOptId(id) &&
+        Number(merged?.dirty) !== 1 &&
+        !!netState.isConnected;
 
       const mergedExt = String(merged?.contentType ?? "").toLowerCase();
       const mergedName = String(merged?.name ?? "").toLowerCase();
@@ -2251,7 +2260,7 @@ const filteredFiles = useMemo(() => {
       }
 
       const cat = categoryFromExt(extClean);
-      const localId = `opt-${Date.now()}`;
+      const localId = newLocalFileId();
 
       // Save locally first — works offline, enqueues upload for later
       const { localUri } = await saveLocal({
@@ -2368,7 +2377,7 @@ const filteredFiles = useMemo(() => {
           }
 
           const cat = categoryFromExt(safeExt);
-          const localId = `opt-${Date.now()}-${i}`;
+          const localId = newLocalFileId();
 
           // Save locally first — works offline
           const { localUri } = await saveLocal({
@@ -2432,7 +2441,7 @@ const filteredFiles = useMemo(() => {
     if (!trimmed) return;
 
     const fileName = deriveNoteUploadFileName(body);
-    const localId = `opt-${Date.now()}`;
+    const localId = newLocalFileId();
     const displayName = fileName.replace(/\.txt$/, "");
     const t = track("SAVE NOTE");
 
@@ -3057,7 +3066,12 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
               await withAction(async () => {
                 // Offline-safe: write to SQLite + outbox first, server will catch up later.
                 for (const id of ids) {
-                  if (String(id).startsWith('opt-')) {
+                  const selectedRow =
+                    userFiles.find((f: any) => String(f?.id) === String(id)) ??
+                    bundlesRef.current.find((b: any) => String(b?.id) === String(id));
+                  const neverSynced =
+                    isLegacyOptId(id) || Number(selectedRow?.dirty) === 1;
+                  if (neverSynced) {
                     // Never reached the server — cancel any pending upload/linq jobs and purge locally.
                     await cancelJobsForId(id);
                     await purgeFile(id);
@@ -3185,7 +3199,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
       const finalExt = wasHeic && !stillHeicAfterConvert ? ".jpg" : ext;
       const extClean = finalExt.replace(/^\./, "").toLowerCase();
       const fileName = getDefaultFileName("photo", finalExt);
-      const localId = `opt-${Date.now()}`;
+      const localId = newLocalFileId();
       const cat = categoryFromExt(extClean);
 
       // Save locally first — works offline, enqueues upload for later

@@ -203,7 +203,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     if (local) return local;
     const remote = String(file?.url ?? "").trim();
     if (remote) return remote;
-    if (id && !id.startsWith("opt-")) {
+    if (id && !id.startsWith("opt-") && Number((file as any)?.dirty) !== 1) {
       return `${API_BASE}/preview/${id}`;
     }
     return "";
@@ -214,7 +214,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
       .trim() || String((file as any)?.local_uri ?? "").trim();
     if (local) return local;
     const id = String(file?.id ?? "").trim();
-    if (id && !id.startsWith("opt-")) {
+    if (id && !id.startsWith("opt-") && Number((file as any)?.dirty) !== 1) {
       return `${API_BASE}/preview/${id}`;
     }
     return getPreviewUri(file);
@@ -227,7 +227,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     ).trim();
     const local = localFromDb || String((file as any)?.local_uri ?? "").trim();
     if (!isOnline && local) return local;
-    if (id && !id.startsWith("opt-")) {
+    if (id && !id.startsWith("opt-") && Number((file as any)?.dirty) !== 1) {
       const direct = String((pdfDirectUrlById as Record<string, string>)[id] ?? "").trim();
       if (direct) return direct;
       return `${API_BASE}/preview/${id}`;
@@ -310,7 +310,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
 
     const maybePdfFiles = (bundleData?.files ?? []).filter((f: any) => {
       const id = String(f?.id ?? "").trim();
-      if (!id || id.startsWith("opt-")) return false;
+      if (!id || id.startsWith("opt-") || Number(f?.dirty) === 1) return false;
       return isPdfLike(f);
     });
     if (maybePdfFiles.length === 0) return;
@@ -681,6 +681,8 @@ export const BundleModal: React.FC<BundleModalProps> = ({
               createdAt={bundleData.createdAt}
               date={(bundleData as any).date}
               creator={bundleData.creator}
+              dirty={(bundleData as any).dirty}
+              isOnline={isOnline}
             />
           </View>
 
@@ -814,6 +816,8 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                     createdAt={file.createdAt}
                     date={(file as any).date}
                     creator={file.creator}
+                    dirty={(file as any).dirty}
+                    isOnline={isOnline}
                   />
                 </View>
 

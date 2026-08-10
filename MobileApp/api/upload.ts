@@ -1,7 +1,7 @@
 import { apiGet, apiPost } from './client'
 import * as FileSystem from 'expo-file-system/legacy'
 import { logUploadPipeline } from '../utils/perfLog'
-import { truncateNameForLog } from '../utils/helpers'
+import { truncateNameForLog, isShareableEntryId } from '../utils/helpers'
 import {
   convertHeicToJpeg,
   isHeicSource,
@@ -25,67 +25,97 @@ export async function getPresignedUrl(): Promise<{ url: string; key: string }> {
 }
 
 /**
- * Pick the DB file id returned by /files/verify (UUID), not the S3 object key.
- * When these differ, using `key` in markFileSynced leaves an orphan row and pull
- * adds a second row with the real id — duplicate notes/files in the list.
+ * Pick the DB entry id returned by /files/verify (UUID), not the S3 object key.
+ * When a client UUID was sent, prefer it if the parser cannot find a UUID in the body
+ * (avoids rewriting local ids to the 32-char hex S3 key).
  */
-export function serverFileIdFromVerifyResponse(verifyJson: unknown, s3Key: string): string {
+export function serverFileIdFromVerifyResponse(
+  verifyJson: unknown,
+  s3Key: string,
+  preferredClientId?: string
+): string {
   const body = verifyJson as Record<string, unknown> | null;
-  if (!body || typeof body !== 'object') return s3Key;
+  const preferred =
+    preferredClientId && isShareableEntryId(preferredClientId)
+      ? String(preferredClientId).trim()
+      : '';
 
-  const pickId = (o: unknown): string | undefined => {
+  const pickUuid = (o: unknown): string | undefined => {
     if (!o || typeof o !== 'object') return undefined;
     const r = o as Record<string, unknown>;
-    for (const k of ['id', 'file_id', 'fileId'] as const) {
+    // Only entry `id` / aliases — never `file_id` (that column is the S3 key).
+    for (const k of ['id', 'fileId', 'entryId', 'entry_id'] as const) {
       const v = r[k];
-      if (typeof v === 'string' && v.trim()) return v.trim();
+      if (typeof v === 'string' && isShareableEntryId(v)) return v.trim();
     }
     return undefined;
   };
 
-  const d = body.data as unknown;
+  if (body && typeof body === 'object') {
+    const d = body.data as unknown;
 
-  if (Array.isArray(d)) {
-    for (const row of d) {
-      if (!row || typeof row !== 'object') continue;
-      const r = row as Record<string, unknown>;
-      const rowKey = r.key ?? r.s3Key ?? r.s3_key;
-      const id = pickId(row);
-      if (id && (!rowKey || String(rowKey) === s3Key)) return id;
+    if (Array.isArray(d)) {
+      for (const row of d) {
+        if (!row || typeof row !== 'object') continue;
+        const r = row as Record<string, unknown>;
+        const rowKey = r.key ?? r.s3Key ?? r.s3_key ?? r.file_id;
+        const id = pickUuid(row);
+        if (id && (!rowKey || String(rowKey) === s3Key || isShareableEntryId(String(rowKey)))) {
+          return id;
+        }
+      }
+      const id0 = pickUuid(d[0]);
+      if (id0) return id0;
     }
-    const id0 = pickId(d[0]);
-    if (id0) return id0;
-  }
 
-  if (d && typeof d === 'object' && !Array.isArray(d)) {
-    const obj = d as Record<string, unknown>;
-    const nested = obj.files ?? obj.file ?? obj.results;
-    if (Array.isArray(nested) && nested[0]) {
-      const id = pickId(nested[0]);
+    if (d && typeof d === 'object' && !Array.isArray(d)) {
+      const obj = d as Record<string, unknown>;
+      const nested = obj.files ?? obj.file ?? obj.results;
+      if (Array.isArray(nested) && nested[0]) {
+        const id = pickUuid(nested[0]);
+        if (id) return id;
+      }
+      const byKey = obj[s3Key];
+      if (byKey && typeof byKey === 'object') {
+        const id = pickUuid(byKey);
+        if (id) return id;
+      }
+      const id = pickUuid(d);
       if (id) return id;
     }
-    const byKey = obj[s3Key];
-    if (byKey && typeof byKey === 'object') {
-      const id = pickId(byKey);
-      if (id) return id;
-    }
-    const id = pickId(d);
-    if (id) return id;
+
+    const topId = pickUuid(body);
+    if (topId) return topId;
   }
 
-  const topId = pickId(body);
-  if (topId) return topId;
-
+  // Prefer the offline client UUID over falling back to the S3 key.
+  if (preferred) return preferred;
   return s3Key;
 }
 
 /** Verify upload on server (DB record + metadata). */
-export async function verifyUpload(key: string, fileName: string) {
-  // Prefer new route; fall back to legacy if not present
+export async function verifyUpload(
+  key: string,
+  fileName: string,
+  clientId?: string
+) {
+  const body: {
+    keys: string[];
+    fileNames: string[];
+    clientIds?: string[];
+  } = { keys: [key], fileNames: [fileName] };
+  if (clientId && String(clientId).trim()) {
+    body.clientIds = [String(clientId).trim()];
+  }
+  // When a client UUID is sent, do not fall back to a legacy route that ignores it
+  // (that would create a new server id and rewrite the offline file id).
+  if (body.clientIds?.length) {
+    return await apiPost(`/files/verify`, body)
+  }
   try {
-    return await apiPost(`/files/verify`, { keys: [key], fileNames: [fileName] })
+    return await apiPost(`/files/verify`, body)
   } catch {
-    return await apiPost(`/file/verify`, { keys: [key], fileNames: [fileName] })
+    return await apiPost(`/file/verify`, body)
   }
 }
 
@@ -154,7 +184,8 @@ export async function putBlobToS3(presignedUrl: string, blob: Blob, timeoutMs = 
 /** Full flow for pickers (URI): convert? → presign → PUT → verify */
 export async function uploadFile(
   fileUri: string,
-  suggestedName: string
+  suggestedName: string,
+  clientId?: string
 ): Promise<{ key: string; url: string; serverFileId: string }> {
   let uploadUri = fileUri
   let verifyName = suggestedName
@@ -186,9 +217,9 @@ export async function uploadFile(
   await putToS3(url, uploadUri)
   const s3 = Date.now() - t
   t = Date.now()
-  const verifyJson = await verifyUpload(key, verifyName)
+  const verifyJson = await verifyUpload(key, verifyName, clientId)
   const verify = Date.now() - t
-  const serverFileId = serverFileIdFromVerifyResponse(verifyJson, key)
+  const serverFileId = resolveSyncedEntryId(verifyJson, key, clientId)
   if (__DEV__) {
     logUploadPipeline('file', verifyName, { convert, presign, s3, verify, bytes })
   }
@@ -198,7 +229,8 @@ export async function uploadFile(
 /** Full flow for notes (Blob): presign → PUT → verify */
 export async function uploadBlob(
   blob: Blob,
-  suggestedName: string
+  suggestedName: string,
+  clientId?: string
 ): Promise<{ key: string; url: string; serverFileId: string }> {
   let t = Date.now()
   const { url, key } = await getPresignedUrl()
@@ -207,9 +239,9 @@ export async function uploadBlob(
   await putBlobToS3(url, blob)
   const s3 = Date.now() - t
   t = Date.now()
-  const verifyJson = await verifyUpload(key, suggestedName)
+  const verifyJson = await verifyUpload(key, suggestedName, clientId)
   const verify = Date.now() - t
-  const serverFileId = serverFileIdFromVerifyResponse(verifyJson, key)
+  const serverFileId = resolveSyncedEntryId(verifyJson, key, clientId)
   if (__DEV__) {
     logUploadPipeline('blob', suggestedName, {
       presign,
@@ -219,4 +251,35 @@ export async function uploadBlob(
     })
   }
   return { key, url, serverFileId }
+}
+
+/**
+ * Final entry id after verify. Keeps the offline client UUID when the API honors
+ * `clientIds`, and avoids rewriting to the S3 object key on parse misses.
+ */
+function resolveSyncedEntryId(
+  verifyJson: unknown,
+  s3Key: string,
+  clientId?: string
+): string {
+  const parsed = serverFileIdFromVerifyResponse(verifyJson, s3Key, clientId)
+  const client =
+    clientId && isShareableEntryId(clientId) ? String(clientId).trim() : ''
+
+  if (client && parsed === client) return client
+
+  if (client && !isShareableEntryId(parsed)) {
+    // Response had no usable UUID (or only the S3 key) — keep the offline id.
+    return client
+  }
+
+  if (client && isShareableEntryId(parsed) && parsed !== client) {
+    // Production API likely not yet deploying clientIds — id will change until deploy.
+    console.warn(
+      '[upload] server returned a different entry id than clientId; deploy Web /files/verify clientIds support',
+      { clientId: client, serverId: parsed }
+    )
+  }
+
+  return parsed
 }

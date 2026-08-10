@@ -19,7 +19,7 @@ import { colorFromCategory } from '../utils/fileHelpers';
 import { persistListThumbnailFromFile } from '../utils/listThumbCache';
 
 export type SaveLocalOpts = {
-  /** Stable local id — use the format `opt-${Date.now()}` or similar. */
+  /** Stable local id — prefer `newLocalFileId()` (UUID) so preview URLs match after sync. */
   localId: string;
   /** Display name (including extension for binaries). */
   name: string;

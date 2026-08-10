@@ -48,7 +48,8 @@ export async function getAll(): Promise<UiFile[]> {
 
 /** Fresh presigned URL for a file (UUID) — cached in-memory (5 min TTL) + deduped. */
 export async function getById(id: string): Promise<{ url: string; type?: string; name?: string }> {
-  // Optimistic IDs (opt-...) are local placeholders with no server record yet.
+  // Legacy optimistic IDs (opt-...) are local placeholders with no server record yet.
+  // Pending client UUIDs may 404 until verify completes — callers should skip dirty rows.
   if (String(id).startsWith('opt-')) {
     throw new Error(`getById: skipping optimistic id ${id}`);
   }

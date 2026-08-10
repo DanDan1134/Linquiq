@@ -126,7 +126,7 @@ async function processJob(payload: OutboxPayload): Promise<void> {
   switch (payload.op) {
     case 'upload_file': {
       const { localId, fileUri, name } = payload;
-      const { serverFileId } = await uploadFile(fileUri, name);
+      const { serverFileId } = await uploadFile(fileUri, name, localId);
       // The `url` returned by uploadFile is the presigned PUT URL (write-only).
       // Storing it as the display URL would cause PDFs/images to show garbage.
       // Pass null so the local file:// path stays as the display URL until
@@ -141,7 +141,7 @@ async function processJob(payload: OutboxPayload): Promise<void> {
     case 'upload_blob': {
       const { localId, content, name } = payload;
       const blob = new Blob([content], { type: 'text/markdown' });
-      const { serverFileId } = await uploadBlob(blob, name);
+      const { serverFileId } = await uploadBlob(blob, name, localId);
       // Same as above: don't store the PUT presigned URL.
       await markFileSynced(localId, serverFileId, undefined);
       break;

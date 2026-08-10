@@ -7,6 +7,7 @@
  */
 import { categoryFromExt } from "./fileHelpers";
 import { API_BASE } from "../api/client";
+import * as Crypto from "expo-crypto";
 
 /** Shown when offline with no on-device copy for image/PDF inline preview (iOS + Android). */
 export const OFFLINE_PREVIEW_MESSAGE = "Can't view in offline mode";
@@ -26,17 +27,53 @@ export function isOfflineImageOrPdfPreviewBlocked(
   return isImagePreview || isPdfPreview;
 }
 
-/** Shareable preview URL — only for server UUIDs (openable / copyable). */
+/** Postgres / shareable entry id shape (UUID). */
+const SHAREABLE_ENTRY_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** New offline file id — same UUID the server will store, so preview URL matches. */
+export function newLocalFileId(): string {
+  return Crypto.randomUUID();
+}
+
+/** True when id can be used in `/preview/{id}` (real UUID, not legacy `opt-…`). */
+export function isShareableEntryId(fileId?: string | null): boolean {
+  return SHAREABLE_ENTRY_ID_RE.test(String(fileId ?? "").trim());
+}
+
+/** Legacy offline placeholder ids (`opt-…`, `opt-linq-…`). */
+export function isLegacyOptId(fileId?: string | null): boolean {
+  return String(fileId ?? "").startsWith("opt-");
+}
+
+/**
+ * Shareable preview URL. Same string offline and online once the id is a UUID.
+ * Empty for legacy `opt-` placeholders (no stable server id yet).
+ */
 export function getFilePreviewUrl(fileId?: string | null): string {
   const id = String(fileId ?? "").trim();
-  if (!id || id.startsWith("opt-")) return "";
+  if (!isShareableEntryId(id)) return "";
   return `${API_BASE}/preview/${id}`;
 }
 
-/** True when the preview link can be opened in a browser (server UUID). */
-export function isFilePreviewUrlLive(fileId?: string | null): boolean {
-  const id = String(fileId ?? "").trim();
-  return Boolean(id && !id.startsWith("opt-"));
+/**
+ * Clickable only when the entry is synced and the device is online.
+ * Pending uploads still show the URL as plain text via getFilePreviewUrlLabel.
+ */
+export function isFilePreviewUrlLive(
+  fileId?: string | null,
+  opts?: {
+    /** Pending local upload (dirty / not yet verified). */
+    pending?: boolean;
+    dirty?: number | boolean;
+    isOnline?: boolean;
+  }
+): boolean {
+  if (!isShareableEntryId(fileId)) return false;
+  if (opts?.pending === true) return false;
+  if (opts?.dirty === 1 || opts?.dirty === true) return false;
+  if (opts?.isOnline === false) return false;
+  return true;
 }
 
 /**

@@ -325,13 +325,14 @@ export async function markDownloadSkipped(id: string): Promise<void> {
 
 /**
  * Return server-synced files that still need their content / binary downloaded.
- * Excludes opt- rows (never synced), already-downloaded, skipped, and Linqs.
+ * Excludes pending local uploads, already-downloaded, skipped, and Linqs.
  */
 export async function getFilesNeedingDownload(): Promise<LocalFile[]> {
   const db = getDb();
   const rows = await db.getAllAsync<FileRow>(
     `SELECT * FROM files
       WHERE deleted = 0
+        AND dirty = 0
         AND (
           download_status = 'pending'
           OR download_status = 'failed'
@@ -345,23 +346,38 @@ export async function getFilesNeedingDownload(): Promise<LocalFile[]> {
 }
 
 /**
- * Map a client-side file id (opt-… or already-synced server id) to the current
- * server row id stored in SQLite. Returns null if the row is still local-only (id still opt-).
+ * Map a client-side file id (opt-…, pending UUID, or synced server id) to the current
+ * server row id stored in SQLite. Returns null if the row is still local-only.
  */
 export async function resolveSyncedFileId(
   clientOrServerId: string
 ): Promise<string | null> {
   const sid = String(clientOrServerId).trim();
   if (!sid) return null;
-  if (!sid.startsWith('opt-')) return sid;
 
   const db = getDb();
-  const row = await db.getFirstAsync<{ id: string }>(
-    'SELECT id FROM files WHERE client_id = ? OR id = ?',
-    [sid, sid]
-  );
-  if (!row?.id) return null;
-  if (String(row.id).startsWith('opt-')) return null;
+  if (sid.startsWith('opt-')) {
+    const row = await db.getFirstAsync<{
+      id: string;
+      dirty: number;
+      synced_at: number | null;
+    }>('SELECT id, dirty, synced_at FROM files WHERE client_id = ? OR id = ?', [
+      sid,
+      sid,
+    ]);
+    if (!row?.id) return null;
+    if (String(row.id).startsWith('opt-')) return null;
+    if (row.dirty === 1 && !row.synced_at) return null;
+    return row.id;
+  }
+
+  const row = await db.getFirstAsync<{
+    id: string;
+    dirty: number;
+    synced_at: number | null;
+  }>('SELECT id, dirty, synced_at FROM files WHERE id = ?', [sid]);
+  if (!row) return sid;
+  if (row.dirty === 1 && !row.synced_at) return null;
   return row.id;
 }
 

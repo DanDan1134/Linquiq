@@ -16,6 +16,17 @@ import {
 interface RequestBody {
   keys: string[];
   fileNames: string[];
+  /** Optional client UUIDs (parallel to keys) so offline preview URLs stay stable. */
+  clientIds?: string[];
+}
+
+const CLIENT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseClientId(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const id = raw.trim();
+  return CLIENT_ID_RE.test(id) ? id : undefined;
 }
 
 type HeadResult =
@@ -72,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body: RequestBody = await request.json();
-    const { keys, fileNames } = body;
+    const { keys, fileNames, clientIds } = body;
 
     const result = await db.transaction(async () => {
       const sentFiles: FileData[] = [];
@@ -83,6 +94,13 @@ export async function POST(request: NextRequest) {
 
       if (keys.length !== fileNames.length) {
         throw new Error("keys and fileNames must have the same length!");
+      }
+
+      if (
+        clientIds !== undefined &&
+        (!Array.isArray(clientIds) || clientIds.length !== keys.length)
+      ) {
+        throw new Error("clientIds must be an array matching keys length!");
       }
 
       if (!isValidUploadCount(keys.length)) {
@@ -100,12 +118,14 @@ export async function POST(request: NextRequest) {
 
         const head = await headObjectMeta(userId, keys[index]);
         if (head.ok) {
+          const clientId = parseClientId(clientIds?.[index]);
           sentFiles.push({
             owner_id: userId,
             creator_id: userId,
             name: fileName,
             type: fileName.split(".").pop() || "unknown",
             file_id: keys[index],
+            ...(clientId ? { id: clientId } : {}),
           });
         } else if (head.reason === "oversized") {
           throw new Error("FILE_TOO_LARGE");

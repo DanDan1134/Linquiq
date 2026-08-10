@@ -457,7 +457,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       return;
     }
     const id = String(selectedFile?.id ?? "").trim();
-    if (!id || id.startsWith("opt-")) {
+    if (!id || id.startsWith("opt-") || Number(selectedFile?.dirty) === 1) {
       setAndroidPdfResolvedUri(null);
       return;
     }
@@ -585,6 +585,8 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       createdAt={selectedFile.createdAt}
       date={selectedFile.date}
       creator={selectedFile.creator}
+      dirty={selectedFile.dirty}
+      isOnline={isOnline}
     />
   );
 
