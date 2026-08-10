@@ -96,7 +96,6 @@ export const SocialButtons: React.FC<Props> = ({ onSuccess, onError }) => {
         <TouchableOpacity
         style={styles.googleBtn}
         onPress={handleGoogle}
-        hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
         accessibilityRole="button"
         accessibilityLabel="Sign in with Google"
         activeOpacity={0.9}

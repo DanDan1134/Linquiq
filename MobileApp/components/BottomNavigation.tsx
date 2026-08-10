@@ -30,8 +30,6 @@ interface BottomNavigationProps {
 }
 
 /** Vertical-only slop; columns already fill width so side slop would overlap neighbors. */
-const NAV_HIT_SLOP = { top: 16, bottom: 16, left: 0, right: 0 } as const;
-
 const formatTime = (seconds: number) => {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
@@ -57,7 +55,6 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
         fillParent
         style={styles.actionColumn}
         onPress={onNotePress}
-        hitSlop={NAV_HIT_SLOP}
         accessibilityRole="button"
         accessibilityLabel="Write a note"
       >
@@ -71,7 +68,6 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
         fillParent
         style={styles.actionColumn}
         onPress={onAttachmentPress}
-        hitSlop={NAV_HIT_SLOP}
         accessibilityRole="button"
         accessibilityLabel="Upload a file or image"
       >
@@ -85,7 +81,6 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
         fillParent
         style={[styles.actionColumn, isMicBusy ? styles.micBusy : undefined]}
         onPress={onMicrophonePress}
-        hitSlop={NAV_HIT_SLOP}
         accessibilityRole="button"
         accessibilityLabel={isRecording ? "Stop recording" : "Start recording"}
       >
@@ -111,7 +106,6 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
         fillParent
         style={styles.actionColumn}
         onPress={onCameraPress}
-        hitSlop={NAV_HIT_SLOP}
         accessibilityRole="button"
         accessibilityLabel="Take a photo"
       >

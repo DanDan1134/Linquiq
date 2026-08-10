@@ -49,9 +49,6 @@ export const FILE_CARD_HEIGHT = 72;
 
 const MAX_FILE_LIST_NAME_CHARS = 24;
 
-/** Extra room beyond the dedicated 52×52 checkbox touch box. */
-const CHECKBOX_HIT_SLOP = { top: 10, bottom: 10, left: 14, right: 0 } as const;
-
 type FileCardFile = {
   id: string;
   name: string;
@@ -166,7 +163,7 @@ const FileCardBase: React.FC<FileCardProps> = ({
   // have an https source before full download or list-thumb file exists.
   useEffect(() => {
     const id = String(file.id ?? "").trim();
-    if (!id || id.startsWith("opt-")) return;
+    if (!id || id.startsWith("opt-") || Number((file as any).dirty) === 1) return;
     if (String(file.local_uri ?? "").trim()) return;
     if (String(diskThumbUri ?? "").trim()) return;
     if (/^https?:\/\//i.test(String(file.url ?? "").trim())) return;
@@ -316,7 +313,6 @@ const FileCardBase: React.FC<FileCardProps> = ({
     >
       <TouchableOpacity
         onPress={handleToggle}
-        hitSlop={CHECKBOX_HIT_SLOP}
         delayPressIn={0}
         activeOpacity={0.6}
         style={styles.checkboxTouchTarget}
@@ -338,7 +334,6 @@ const FileCardBase: React.FC<FileCardProps> = ({
       <TouchableOpacity
         onPress={handleCardPress}
         activeOpacity={0.7}
-        hitSlop={{ top: 4, bottom: 4, left: 0, right: 4 }}
         delayPressIn={0}
         style={styles.cardOpenTarget}
         accessibilityRole="button"
@@ -376,7 +371,8 @@ const FileCardBase: React.FC<FileCardProps> = ({
                 if (
                   !urlRefreshAttempted.current &&
                   idStr &&
-                  !idStr.startsWith("opt-")
+                  !idStr.startsWith("opt-") &&
+                  Number((file as any).dirty) !== 1
                 ) {
                   urlRefreshAttempted.current = true;
                   void filesApi

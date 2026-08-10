@@ -1,28 +1,31 @@
 /**
  * NoteModal Component
  *
- * Single free-form body (plain text; paste may include HTML-like text).
- * Filename is derived on save (web Linquiq behavior) — no separate title field.
- *
- * Custom spring slide-up + backdrop fade (smoother than Modal animationType="slide").
+ * Minimal compose bar (iMessage-style): a single rounded text field that
+ * dynamically grows with content, docked just above the keyboard, sitting on
+ * a darker translucent toolbar panel so it reads clearly over whatever is
+ * behind it. No card, no separate "Note" label/section, no explicit close
+ * button — tapping anywhere on the dimmed backdrop cancels. The filename is
+ * derived from the body on save (web Linquiq behavior).
  */
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
-  Text,
   TextInput,
   TouchableOpacity,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Modal,
   Pressable,
   StyleSheet,
-  useWindowDimensions,
   Animated,
   Easing,
+  type TextInput as RNTextInput,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
-import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUp } from "@fortawesome/free-solid-svg-icons";
 import "../global.css";
 
 interface NoteModalProps {
@@ -33,6 +36,10 @@ interface NoteModalProps {
   onSave: () => void;
 }
 
+const MIN_INPUT_HEIGHT = 22;
+/** Cap the field at roughly 7-8 lines — past this it scrolls internally instead of pushing the whole bar (and screen) taller. */
+const MAX_INPUT_HEIGHT = 160;
+
 export const NoteModal: React.FC<NoteModalProps> = ({
   isVisible,
   noteText,
@@ -40,39 +47,61 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   onClose,
   onSave,
 }) => {
-  const { height } = useWindowDimensions();
-  const sheetMaxHeight = Platform.OS === "ios" ? height * 0.72 : undefined;
+  const insets = useSafeAreaInsets();
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
-  const sheetY = useRef(new Animated.Value(height)).current;
+  const barOpacity = useRef(new Animated.Value(0)).current;
+  const barRise = useRef(new Animated.Value(12)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const closingRef = useRef(false);
+  const inputRef = useRef<RNTextInput>(null);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isVisible) {
-      sheetY.setValue(height);
+      barOpacity.setValue(0);
+      barRise.setValue(12);
       backdropOpacity.setValue(0);
       closingRef.current = false;
       return;
     }
     closingRef.current = false;
-    sheetY.setValue(Math.min(height * 0.35, 280));
-    backdropOpacity.setValue(0);
+    // Focus right away — the bar's own motion is a subtle fade/12px rise now,
+    // not a big slide, so it no longer races visibly with the keyboard. Waiting
+    // for the animation to finish just made the field feel unresponsive to taps.
+    inputRef.current?.focus();
     Animated.parallel([
       Animated.timing(backdropOpacity, {
         toValue: 1,
-        duration: 220,
+        duration: 180,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.spring(sheetY, {
+      Animated.timing(barOpacity, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.spring(barRise, {
         toValue: 0,
-        damping: 26,
-        stiffness: 280,
+        damping: 24,
+        stiffness: 260,
         mass: 0.9,
         useNativeDriver: true,
       }),
     ]).start();
-  }, [isVisible, height, sheetY, backdropOpacity]);
+  }, [isVisible, barOpacity, barRise, backdropOpacity]);
 
   const animateClose = (after?: () => void) => {
     if (closingRef.current) return;
@@ -80,13 +109,19 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     Animated.parallel([
       Animated.timing(backdropOpacity, {
         toValue: 0,
-        duration: 160,
+        duration: 150,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.timing(sheetY, {
-        toValue: Math.min(height * 0.4, 320),
-        duration: 200,
+      Animated.timing(barOpacity, {
+        toValue: 0,
+        duration: 130,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(barRise, {
+        toValue: 10,
+        duration: 150,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -96,7 +131,19 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     });
   };
 
-  const handleClose = () => animateClose(onClose);
+  const handleClose = () => {
+    // Retract the keyboard immediately so it doesn't fight the closing fade.
+    inputRef.current?.blur();
+    animateClose(onClose);
+  };
+
+  const handleSave = () => {
+    if (!noteText.trim()) return;
+    inputRef.current?.blur();
+    animateClose(onSave);
+  };
+
+  const canSend = noteText.trim().length > 0;
 
   return (
     <Modal
@@ -120,58 +167,54 @@ export const NoteModal: React.FC<NoteModalProps> = ({
 
         <Animated.View
           style={[
-            styles.sheetWrapper,
-            { transform: [{ translateY: sheetY }] },
+            styles.barOuter,
+            {
+              marginBottom: keyboardVisible ? 8 : insets.bottom + 8,
+              opacity: barOpacity,
+              transform: [{ translateY: barRise }],
+            },
           ]}
         >
-          <View
-            className="bg-background px-4 py-4"
-            style={[
-              styles.sheet,
-              sheetMaxHeight ? { maxHeight: sheetMaxHeight } : null,
-            ]}
-          >
-            <View className="flex-row justify-end items-center mb-3">
-              <TouchableOpacity
-                onPress={handleClose}
-                className="rounded-full items-center justify-center"
-                style={styles.closeButton}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                delayPressIn={0}
-                accessibilityRole="button"
-                accessibilityLabel="Close note"
-              >
-                <FontAwesomeIcon icon={faXmark} size={20} color="white" />
-              </TouchableOpacity>
-            </View>
-
-            <Text className="text-gray-400 text-sm mb-2">Note</Text>
-            <View className="bg-gray-600 rounded-lg px-4 py-3 mb-4">
+          <View style={styles.barPanel}>
+            <View
+              style={[
+                styles.inputWrap,
+                { maxHeight: MAX_INPUT_HEIGHT + 20 },
+              ]}
+            >
               <TextInput
-                placeholder="Write your note…"
+                ref={inputRef}
+                placeholder="Note"
                 placeholderTextColor="#9CA3AF"
                 value={noteText}
                 onChangeText={onNoteTextChange}
                 className="text-white text-base"
                 multiline
-                autoFocus
-                style={{ minHeight: 140, maxHeight: 280 }}
+                scrollEnabled
+                style={styles.input}
                 textAlignVertical="top"
               />
             </View>
 
-            <View className="flex-row justify-end">
+            <View style={styles.sendSlot}>
               <TouchableOpacity
-                className="bg-button-outline rounded-lg px-5 items-center justify-center"
-                style={styles.saveButton}
-                onPress={onSave}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                onPress={handleSave}
+                disabled={!canSend}
+                className="items-center justify-center rounded-full"
+                style={[
+                  styles.sendButton,
+                  { backgroundColor: canSend ? "#D7827E" : "#3F3F46" },
+                ]}
                 delayPressIn={0}
                 accessibilityRole="button"
+                accessibilityLabel="Save note"
+                accessibilityState={{ disabled: !canSend }}
               >
-                <Text className="text-black font-semibold text-sm">
-                  Save Note
-                </Text>
+                <FontAwesomeIcon
+                  icon={faArrowUp}
+                  size={16}
+                  color={canSend ? "#111827" : "#6B7280"}
+                />
               </TouchableOpacity>
             </View>
           </View>
@@ -188,21 +231,49 @@ const styles = StyleSheet.create({
   },
   backdropFill: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
   },
-  sheetWrapper: {
-    width: "100%",
+  barOuter: {
+    paddingHorizontal: 8,
   },
-  sheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    marginTop: Platform.OS === "ios" ? 12 : 0,
+  // Darker, slightly transparent toolbar panel behind the field so the note
+  // stands out from the (already dimmed) content underneath — same idea as
+  // iMessage's compose toolbar sitting on its own surface above the thread.
+  barPanel: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    backgroundColor: "rgba(20, 20, 22, 0.82)",
+    borderRadius: 22,
+    padding: 6,
+    gap: 6,
   },
-  closeButton: {
-    width: 56,
-    height: 56,
+  inputWrap: {
+    flex: 0.85,
+    backgroundColor: "#3A3A3C",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    justifyContent: "center",
+    overflow: "hidden",
   },
-  saveButton: {
-    minHeight: 44,
+  // minHeight/maxHeight (not a fixed `height` driven by state) let the native
+  // TextInput grow itself as lines are added, then scroll internally once it
+  // hits the max. Tying `height` to onContentSizeChange causes a feedback loop
+  // on Android — it measures the already-clipped view, so it never grows past
+  // the initial size.
+  input: {
+    padding: 0,
+    margin: 0,
+    minHeight: MIN_INPUT_HEIGHT,
+    maxHeight: MAX_INPUT_HEIGHT,
+  },
+  sendSlot: {
+    flex: 0.15,
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  sendButton: {
+    width: 44,
+    height: 44,
   },
 });

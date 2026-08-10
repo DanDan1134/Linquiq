@@ -23,9 +23,6 @@ interface CameraModalProps {
   onPhotoTaken: (photoUri: string) => void;
 }
 
-/** Light slop around the already-large control boxes. */
-const CONTROL_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 } as const;
-
 export const CameraModal: React.FC<CameraModalProps> = ({
   isVisible,
   onClose,
@@ -91,7 +88,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
           <TouchableOpacity
             onPress={requestPermission}
             className="bg-button-outline rounded-md py-3 px-6"
-            hitSlop={CONTROL_HIT_SLOP}
+            style={{ minHeight: 48, justifyContent: "center" }}
             delayPressIn={0}
             accessibilityRole="button"
           >
@@ -100,7 +97,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
           <TouchableOpacity
             onPress={onClose}
             style={styles.cancelButton}
-            hitSlop={CONTROL_HIT_SLOP}
             delayPressIn={0}
             accessibilityRole="button"
           >
@@ -129,7 +125,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             <TouchableOpacity
               onPress={onClose}
               style={styles.iconButton}
-              hitSlop={CONTROL_HIT_SLOP}
               delayPressIn={0}
               accessibilityRole="button"
               accessibilityLabel="Close camera"
@@ -142,7 +137,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
             <TouchableOpacity
               onPress={switchCamera}
               style={styles.iconButton}
-              hitSlop={CONTROL_HIT_SLOP}
               delayPressIn={0}
               accessibilityRole="button"
               accessibilityLabel="Switch camera"
@@ -159,7 +153,6 @@ export const CameraModal: React.FC<CameraModalProps> = ({
                 isReady ? "bg-white" : "bg-gray-400"
               }`}
               style={isCapturing ? styles.captureBusy : undefined}
-              hitSlop={CONTROL_HIT_SLOP}
               delayPressIn={0}
               accessibilityRole="button"
               accessibilityLabel="Take a photo"
@@ -191,7 +184,7 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     marginTop: 16,
-    minHeight: 44,
+    minHeight: 48,
     justifyContent: "center",
   },
 });

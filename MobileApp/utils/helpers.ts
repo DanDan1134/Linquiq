@@ -49,9 +49,21 @@ export function isSitePreviewUrl(uri?: string | null): boolean {
 }
 
 /** True when the preview link can be opened in a browser (server UUID). */
-export function isFilePreviewUrlLive(fileId?: string | null): boolean {
+export function isFilePreviewUrlLive(
+  fileId?: string | null,
+  opts?: {
+    /** Pending local upload (dirty / not yet verified). */
+    pending?: boolean;
+    dirty?: number | boolean;
+    isOnline?: boolean;
+  }
+): boolean {
   const id = String(fileId ?? "").trim();
-  return Boolean(id && !id.startsWith("opt-"));
+  if (!id || id.startsWith("opt-")) return false;
+  if (opts?.pending === true) return false;
+  if (opts?.dirty === 1 || opts?.dirty === true) return false;
+  if (opts?.isOnline === false) return false;
+  return true;
 }
 
 /**
@@ -102,53 +114,19 @@ export const getTypeColor = (color: string) => {
   }
 };
 
-/** Horizontal gap after Copy / before Expand (keeps touch slops from overlapping). */
+/** Horizontal gap after Copy / before Expand (keeps adjacent buttons' real boxes apart). */
 export const HEADER_ACTION_SEPARATOR = 14;
 
 /** Extra gap between fullscreen/expand and the close (×) control. */
 export const HEADER_EXPAND_TO_CLOSE_GAP = 20;
 
-/** Apple HIG / Material minimum comfortable touch target. */
+/**
+ * Apple HIG / Material minimum comfortable touch target (44pt iOS / 48dp Android).
+ * Buttons should meet this with their real drawn size — no hitSlop. hitSlop can
+ * overlap a neighbor's slop zone, or go stale after RN's Modal-stacking touch bug,
+ * both of which make taps miss or land on the wrong control.
+ */
 export const MIN_TOUCH_SIZE = 52;
-
-/** Square box that guarantees a 52×52 tap area around a small icon. */
-export const TOUCH_TARGET_BOX = {
-  minWidth: MIN_TOUCH_SIZE,
-  minHeight: MIN_TOUCH_SIZE,
-  alignItems: "center",
-  justifyContent: "center",
-} as const;
-
-/**
- * Modest slop for icon buttons that already use MIN_TOUCH_SIZE.
- * Keep this small so neighboring controls do not overlap (overlapping
- * hit areas cause intermittent missed / stolen taps on both platforms).
- */
-export const ICON_HIT_SLOP = {
-  top: 10,
-  bottom: 10,
-  left: 10,
-  right: 10,
-} as const;
-
-/** Hit slop for expand / bundle-shell fullscreen icon chips. */
-export const HEADER_ACTION_HIT_SLOP = {
-  top: 12,
-  bottom: 12,
-  left: 8,
-  right: 8,
-} as const;
-
-/**
- * Close (×) controls. Rely on a large min touch box + light slop —
- * not a huge radius that collides with the button next to it.
- */
-export const HEADER_CLOSE_HIT_SLOP = {
-  top: 12,
-  bottom: 12,
-  left: 12,
-  right: 12,
-} as const;
 
 const COPY_SUCCESS_FEEDBACK_MS = 2000;
 

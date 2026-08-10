@@ -36,8 +36,6 @@ import {
   isSitePreviewUrl,
   HEADER_ACTION_SEPARATOR,
   HEADER_EXPAND_TO_CLOSE_GAP,
-  HEADER_ACTION_HIT_SLOP,
-  HEADER_CLOSE_HIT_SLOP,
   formatLinqCreatedDisplay,
 } from "../utils/helpers";
 import { PreviewFallbackBanner } from "./PreviewFallbackBanner";
@@ -171,7 +169,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
   const netInfo = useNetInfo();
   const isOnline = netInfo.isConnected !== false;
 
-  const HEADER_ACTION_CHIP_HEIGHT = 34;
+  const HEADER_ACTION_CHIP_HEIGHT = 48;
 
   const copyUrlChipStyle = {
     height: HEADER_ACTION_CHIP_HEIGHT,
@@ -641,7 +639,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
             <TouchableOpacity
               onPress={copyAllLinks}
               style={[copyUrlChipStyle, { flexDirection: "row", alignItems: "center" }]}
-              hitSlop={HEADER_ACTION_HIT_SLOP}
               accessibilityLabel="Copy all file URLs"
             >
               <FontAwesomeIcon
@@ -669,7 +666,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                 justifyContent: "center",
                 alignItems: "center",
               }}
-              hitSlop={HEADER_CLOSE_HIT_SLOP}
               accessibilityLabel="Close bundle details"
             >
               <FontAwesomeIcon icon={faXmark} size={22} color="white" />
@@ -849,7 +845,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                         }}
                         activeOpacity={0.7}
                         className="ml-2 bg-button-outline rounded-md px-4 min-h-[52px] items-center justify-center"
-                        hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
                       >
                         <Text className="text-black text-sm font-semibold">Open →</Text>
                       </TouchableOpacity>
@@ -949,7 +944,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                         }}
                         className="mt-3 bg-button-outline rounded-md px-4 min-h-[52px] items-center justify-center"
                         activeOpacity={0.7}
-                        hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
                       >
                         <Text className="text-black font-semibold text-sm">
                           Extract Contents
@@ -1071,7 +1065,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                               justifyContent: "center",
                               opacity: getOpenInTabTarget(file) ? 1 : 0.5,
                             }}
-                            hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
                           >
                             <Text style={{ color: "#fff", fontWeight: "600", textAlign: "center" }}>
                               Open in Files
@@ -1125,7 +1118,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                               minHeight: 52,
                               justifyContent: "center",
                             }}
-                            hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
                           >
                             <Text style={{ color: "#111827", fontWeight: "700" }}>
                               Open PDF
@@ -1219,7 +1211,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                           onPress={() => handleAudioToggle(file)}
                           className={`rounded-md px-3 items-center justify-center ${playingId === file.id ? "bg-red-600" : "bg-button-outline"}`}
                           style={styles.audioButton}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           accessibilityRole="button"
                           accessibilityLabel={
                             playingId === file.id
@@ -1321,6 +1312,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
         getTypeColor={getTypeColor}
         fetchUrl={fetchUrl}
         startFullscreen
+        hostedInModal
       />
       <FullscreenImageOverlay
         imageUri={fullscreenImageUri}
@@ -1334,7 +1326,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
 
 const styles = StyleSheet.create({
   audioButton: {
-    minHeight: 44,
+    minHeight: 48,
   },
   childPlaceholder: {
     height: 56,
