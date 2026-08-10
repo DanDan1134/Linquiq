@@ -29,7 +29,10 @@ export const createFile = async (files : FileData[], userId : string) : Promise<
                 name: file.name,
                 type: file.name.split('.').pop() || 'unknown',
                 file_id: file.file_id,
-                creator_email: email
+                creator_email: email,
+                ...(file.description != null && String(file.description).trim() !== ""
+                  ? { description: String(file.description).slice(0, 64 * 1024) }
+                  : {}),
         })
     }
 

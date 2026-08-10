@@ -82,6 +82,8 @@ export default async function PreviewPage({
                                 <SingleFilePreview
                                     fileUrl={fileUrl?.[0]?.url}
                                     fileType={fileData.type}
+                                    fileId={fileData.id}
+                                    fileName={fileData.name}
                                 />
                             )}
                         </div>

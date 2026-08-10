@@ -1067,7 +1067,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                         </View>
                       );
                     }
-                    const isHttp = /^https?:\/\//i.test(inlinePdfUri);
                     // iOS WebView can show file:// PDFs offline; Android needs an external app when offline.
                     const shouldShowOpenPdfFallback =
                       (Platform.OS === "android" && !isOnline) ||
@@ -1122,9 +1121,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                         </View>
                       );
                     }
-                    // Prevent raw PDF bytes ("%PDF-1.x ...") from rendering as text.
-                    // For remote URLs, always wrap with Google viewer; keep local file:// direct.
-                    const shouldUseGoogleViewer = isHttp;
+                    // Direct PDF URI only — no Google viewer, no JS, no file:// access.
                     return (
                       <View
                         className="mb-3"
@@ -1138,11 +1135,9 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                       >
                         <WebView
                           source={{
-                            uri: shouldUseGoogleViewer
-                              ? `https://drive.google.com/viewerng/viewer?embedded=true&url=${encodeURIComponent(inlinePdfUri)}`
-                              : inlinePdfUri,
+                            uri: inlinePdfUri,
                           }}
-                          originWhitelist={["*"]}
+                          originWhitelist={["https://*", "http://*", "file://*"]}
                           onLoadStart={() => {
                             if (pdfTimeoutRef.current[file.id]) {
                               clearTimeout(pdfTimeoutRef.current[file.id]);
@@ -1171,8 +1166,8 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                               [file.id]: e?.nativeEvent?.description ?? "Failed to load PDF",
                             }));
                           }}
-                          javaScriptEnabled
-                          allowFileAccess
+                          javaScriptEnabled={false}
+                          allowFileAccess={false}
                           scalesPageToFit
                         />
                       </View>

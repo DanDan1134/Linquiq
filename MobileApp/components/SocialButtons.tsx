@@ -43,7 +43,9 @@ export const SocialButtons: React.FC<Props> = ({ onSuccess, onError }) => {
   const { startSSOFlow } = useSSO(); // modern Clerk hook
   const handleGoogle = React.useCallback(async () => {
     try {
-      const redirectUrl = Linking.createURL('/sso-callback', { scheme: 'connectwork' });
+      // Use the app scheme from app.json (`linquiq`), not a mismatched legacy scheme.
+      // A wrong scheme (e.g. connectwork) can be claimed by another Android app and steal the SSO callback.
+      const redirectUrl = Linking.createURL('/sso-callback');
       const { createdSessionId, setActive } = await startSSOFlow({
         strategy: 'oauth_google',
         redirectUrl,

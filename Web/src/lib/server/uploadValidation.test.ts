@@ -4,7 +4,11 @@ import {
   getFileExtension,
   isAllowedFileName,
   isAllowedFileSize,
+  isContentTypeAllowedForFileName,
   isValidUploadCount,
+  matchesMagicBytes,
+  mimeForFileName,
+  validateUploadMeta,
   MAX_FILE_BYTES,
   MAX_UPLOAD_COUNT,
 } from "./uploadValidation";
@@ -51,5 +55,58 @@ describe("getFileExtension / isAllowedFileSize", () => {
     expect(isAllowedFileSize(MAX_FILE_BYTES)).toBe(true);
     expect(isAllowedFileSize(MAX_FILE_BYTES + 1)).toBe(false);
     expect(isAllowedFileSize(undefined)).toBe(false);
+  });
+});
+
+describe("MIME / content-type pairing", () => {
+  it("maps extensions to canonical MIME", () => {
+    expect(mimeForFileName("a.pdf")).toBe("application/pdf");
+    expect(mimeForFileName("a.jpg")).toBe("image/jpeg");
+    expect(mimeForFileName("note.md")).toBe("text/markdown");
+  });
+
+  it("accepts matching content types and rejects HTML/octet-stream", () => {
+    expect(isContentTypeAllowedForFileName("a.pdf", "application/pdf")).toBe(true);
+    expect(isContentTypeAllowedForFileName("a.pdf", "text/html")).toBe(false);
+    expect(
+      isContentTypeAllowedForFileName("a.pdf", "application/octet-stream")
+    ).toBe(false);
+    expect(isContentTypeAllowedForFileName("a.md", "text/plain")).toBe(true);
+  });
+
+  it("validateUploadMeta normalizes to canonical MIME", () => {
+    const meta = validateUploadMeta({
+      fileName: "photo.jpg",
+      contentType: "image/jpg",
+      contentLength: 1024,
+    });
+    expect(meta.contentType).toBe("image/jpeg");
+    expect(meta.contentLength).toBe(1024);
+  });
+
+  it("validateUploadMeta rejects oversized files", () => {
+    expect(() =>
+      validateUploadMeta({
+        fileName: "big.pdf",
+        contentType: "application/pdf",
+        contentLength: MAX_FILE_BYTES + 1,
+      })
+    ).toThrow("FILE_TOO_LARGE");
+  });
+});
+
+describe("matchesMagicBytes", () => {
+  it("accepts PDF and JPEG headers", () => {
+    expect(
+      matchesMagicBytes("doc.pdf", new Uint8Array([0x25, 0x50, 0x44, 0x46]))
+    ).toBe(true);
+    expect(
+      matchesMagicBytes("pic.jpg", new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))
+    ).toBe(true);
+  });
+
+  it("rejects HTML disguised as PDF", () => {
+    const html = new TextEncoder().encode("<!doctype html>");
+    expect(matchesMagicBytes("evil.pdf", html)).toBe(false);
   });
 });

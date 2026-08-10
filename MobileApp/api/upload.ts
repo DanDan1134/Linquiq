@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client'
+import { apiPost } from './client'
 import * as FileSystem from 'expo-file-system/legacy'
 import { logUploadPipeline } from '../utils/perfLog'
 import { truncateNameForLog } from '../utils/helpers'
@@ -8,20 +8,67 @@ import {
   jpgNameFromHeicUploadName,
 } from '../utils/fileHelpers'
 
-/** Get presigned PUT URLs (and keys) for S3 */
-async function getUploadUrls(count = 1): Promise<{ ok: boolean; urls: string[]; keys: string[] }> {
-  const payload = await apiGet<any>(`/files/upload-helper?count=${count}`)
+/** Guess a MIME type from filename when the blob/URI has none. */
+function mimeFromFileName(fileName: string): string {
+  const ext = String(fileName).split('.').pop()?.toLowerCase() ?? ''
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    mp4: 'video/mp4',
+    webm: 'video/webm',
+    ogg: 'audio/ogg',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    pdf: 'application/pdf',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    txt: 'text/plain',
+    text: 'text/plain',
+    md: 'text/markdown',
+  }
+  return map[ext] || 'application/octet-stream'
+}
+
+type UploadMeta = {
+  fileName: string
+  contentType: string
+  contentLength: number
+}
+
+/** Get bounded presigned PUT URLs (Content-Type + Content-Length signed). */
+async function getUploadUrls(
+  files: UploadMeta[]
+): Promise<{ ok: boolean; urls: string[]; keys: string[]; contentTypes: string[]; contentLengths: number[] }> {
+  const payload = await apiPost<any>(`/files/upload-helper`, { files })
   const ok = !!(payload?.okay ?? payload?.ok ?? true)
   const urls = payload?.urls ?? []
   const keys = payload?.keys ?? []
+  const contentTypes = payload?.contentTypes ?? files.map((f) => f.contentType)
+  const contentLengths = payload?.contentLengths ?? files.map((f) => f.contentLength)
   if (!urls.length || !keys.length) throw new Error('upload-helper did not return urls/keys')
-  return { ok, urls, keys }
+  return { ok, urls, keys, contentTypes, contentLengths }
 }
 
-/** One URL/key pair */
-export async function getPresignedUrl(): Promise<{ url: string; key: string }> {
-  const { urls, keys } = await getUploadUrls(1)
-  return { url: urls[0], key: keys[0] }
+/** One URL/key pair for a known file. */
+export async function getPresignedUrl(meta: UploadMeta): Promise<{
+  url: string
+  key: string
+  contentType: string
+  contentLength: number
+}> {
+  const { urls, keys, contentTypes, contentLengths } = await getUploadUrls([meta])
+  return {
+    url: urls[0],
+    key: keys[0],
+    contentType: contentTypes[0],
+    contentLength: contentLengths[0],
+  }
 }
 
 /**
@@ -90,7 +137,16 @@ export async function verifyUpload(key: string, fileName: string) {
 }
 
 /** PUT a file from a local URI to S3 (presigned URL) */
-export async function putToS3(presignedUrl: string, fileUri: string, timeoutMs = 300000): Promise<void> {
+export async function putToS3(
+  presignedUrl: string,
+  fileUri: string,
+  opts?: { contentType?: string; contentLength?: number; timeoutMs?: number }
+): Promise<void> {
+  const timeoutMs = opts?.timeoutMs ?? 300000
+  const headers: Record<string, string> = {}
+  if (opts?.contentType) headers['Content-Type'] = opts.contentType
+  if (opts?.contentLength != null) headers['Content-Length'] = String(opts.contentLength)
+
   // Prefer streaming file upload to avoid loading large media files into JS memory.
   // This prevents freezes/crashes on heavy formats like HEIC when syncing online.
   try {
@@ -102,6 +158,7 @@ export async function putToS3(presignedUrl: string, fileUri: string, timeoutMs =
     const uploadPromise = FileSystem.uploadAsync(presignedUrl, fileUri, {
       httpMethod: 'PUT',
       uploadType: (FileSystem as any).FileSystemUploadType.BINARY_CONTENT,
+      headers,
     })
 
     const result = await Promise.race([
@@ -125,12 +182,24 @@ export async function putToS3(presignedUrl: string, fileUri: string, timeoutMs =
   // Fallback path for environments where uploadAsync is unavailable.
   const resp = await fetch(fileUri)
   const blob = await resp.blob()
-  await putBlobToS3(presignedUrl, blob, timeoutMs)
+  await putBlobToS3(presignedUrl, blob, {
+    contentType: opts?.contentType,
+    contentLength: opts?.contentLength ?? blob.size,
+    timeoutMs,
+  })
 }
 
 /** PUT a Blob directly to S3 (for notes/text) */
-export async function putBlobToS3(presignedUrl: string, blob: Blob, timeoutMs = 300000): Promise<void> {
+export async function putBlobToS3(
+  presignedUrl: string,
+  blob: Blob,
+  opts?: { contentType?: string; contentLength?: number; timeoutMs?: number }
+): Promise<void> {
+  const timeoutMs = opts?.timeoutMs ?? 300000
   const fileSizeMB = blob.size / (1024 * 1024)
+  const contentType =
+    opts?.contentType ||
+    (blob.type && blob.type.trim() !== '' ? blob.type : 'text/plain')
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     const timer = setTimeout(() => {
@@ -138,8 +207,8 @@ export async function putBlobToS3(presignedUrl: string, blob: Blob, timeoutMs = 
       reject(new Error(`Upload timeout after ${timeoutMs / 1000}s (${fileSizeMB.toFixed(2)} MB)`))
     }, timeoutMs)
     xhr.open('PUT', presignedUrl)
-    // Do NOT set extra headers unless your presign includes them.
-    // XHR will set Content-Type based on blob.type automatically.
+    xhr.setRequestHeader('Content-Type', contentType)
+    // Do not set Content-Length manually on XHR — RN/browsers set it from the body.
     xhr.onload = () => {
       clearTimeout(timer)
       if ([200, 201, 204].includes(xhr.status)) resolve()
@@ -169,21 +238,32 @@ export async function uploadFile(
     }
   }
 
-  let bytes: number | undefined
+  let bytes = 0
   try {
     const info = await FileSystem.getInfoAsync(uploadUri)
     if (info.exists && typeof (info as { size?: number }).size === 'number') {
       bytes = (info as { size: number }).size
     }
   } catch {
-    // Non-fatal — size is only for perf logs.
+    // Non-fatal — size is required for bounded presign; fail closed below.
+  }
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    throw new Error(`Could not determine file size for ${verifyName}`)
   }
 
+  const contentType = mimeFromFileName(verifyName)
   let t = Date.now()
-  const { url, key } = await getPresignedUrl()
+  const { url, key, contentType: signedType, contentLength } = await getPresignedUrl({
+    fileName: verifyName,
+    contentType,
+    contentLength: bytes,
+  })
   const presign = Date.now() - t
   t = Date.now()
-  await putToS3(url, uploadUri)
+  await putToS3(url, uploadUri, {
+    contentType: signedType,
+    contentLength,
+  })
   const s3 = Date.now() - t
   t = Date.now()
   const verifyJson = await verifyUpload(key, verifyName)
@@ -200,11 +280,22 @@ export async function uploadBlob(
   blob: Blob,
   suggestedName: string
 ): Promise<{ key: string; url: string; serverFileId: string }> {
+  const contentType =
+    blob.type && blob.type.trim() !== ''
+      ? blob.type
+      : mimeFromFileName(suggestedName)
   let t = Date.now()
-  const { url, key } = await getPresignedUrl()
+  const { url, key, contentType: signedType, contentLength } = await getPresignedUrl({
+    fileName: suggestedName,
+    contentType,
+    contentLength: blob.size,
+  })
   const presign = Date.now() - t
   t = Date.now()
-  await putBlobToS3(url, blob)
+  await putBlobToS3(url, blob, {
+    contentType: signedType,
+    contentLength,
+  })
   const s3 = Date.now() - t
   t = Date.now()
   const verifyJson = await verifyUpload(key, suggestedName)

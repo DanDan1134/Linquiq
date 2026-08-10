@@ -7,4 +7,6 @@ export interface FileData {
     type: string;
     file_id?: string;
     creator_email? : string;
+    /** Optional searchable text extract for notes/txt/md. */
+    description?: string;
 }

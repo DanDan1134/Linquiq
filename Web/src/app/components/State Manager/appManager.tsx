@@ -186,27 +186,42 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
                 })
             );
 
-            // Get presigned URLs
-            const response = await fetch(
-                `/api/files/upload-helper?count=${uploadJobs.length}`,
-                {
-                    method: "GET",
-                    credentials: "include",
-                }
-            );
+            // Get bounded presigned URLs (Content-Type + Content-Length signed)
+            const response = await fetch(`/api/files/upload-helper`, {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    files: uploadJobs.map((uploadJob) => ({
+                        fileName: uploadJob.storedName,
+                        contentType:
+                            uploadJob.uploadFile.type || "application/octet-stream",
+                        contentLength: uploadJob.uploadFile.size,
+                    })),
+                }),
+            });
 
             if (!response.ok) {
                 throw new Error("Failed to get upload URLs");
             }
 
-            const { urls, keys } = await response.json();
+            const { urls, keys, contentTypes } = await response.json();
 
             // Upload each file to S3
             const uploadPromises = uploadJobs.length > 0 ? uploadJobs.map(async (uploadJob, index) => {
                 return new Promise<void>((resolve, reject) => {
                     const xhr = new XMLHttpRequest();
                     xhr.open("PUT", urls[index]);
-                    xhr.setRequestHeader("Content-Type", uploadJob.uploadFile.type || "application/octet-stream");
+                    // Must match the signed Content-Type. Do not set Content-Length
+                    // manually — browsers forbid it and set it from the body.
+                    xhr.setRequestHeader(
+                        "Content-Type",
+                        contentTypes?.[index] ||
+                            uploadJob.uploadFile.type ||
+                            "application/octet-stream"
+                    );
 
                     xhr.onload = async () => {
                         if (xhr.status === 200) {

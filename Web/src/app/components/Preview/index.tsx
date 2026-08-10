@@ -8,13 +8,7 @@ import { getFileType } from "@/lib/client/getFileType"
 import { VerticalDiv } from "../UILayout";
 import Bundle from "./Views/Bundle";
 import { sanitizeHtml } from "@/lib/client/sanitizeHtml";
-
-import { DocumentViewer } from 'react-documents';
-
-
-
-
-
+import { PrivateDocumentPreview } from "@/app/components/Preview/PrivateDocumentPreview";
 
 const NoteView = ({fileUrl}: {fileUrl: string}) => {
     const [fileSrc, setFileSrc] = useState<string | undefined>(undefined)
@@ -104,32 +98,22 @@ export const Preview = () => {
         console.log(fileType)
         switch (fileType){
             case "Document": {
-                // const fileSrc = `https://docs.google.com/gview?url=${encodeURIComponent(fileUrl[0].url as string)}&embedded=true`;
-                return(
-                    
+                const entry = fileUrl[0].data as { id?: string; name?: string; type?: string } | null
+                return (
                     <div style={{
                         width : "100%",
-                        
                         display : "flex",
                         flexDirection : "column",
                         gap : "1rem",
                     }}>
-                        <DocumentViewer
-                            queryParams="hl=Nl"
-                            url={fileUrl[0].url as string}
-                            style={{
-                                width : "100%",
-                                aspectRatio : "1/1.1",
-                                flex: 1,
-                                borderRadius : "var(--border-rad)",
-                                objectFit : "contain",
-                                objectPosition : "center",
-                            }}>
-                        </DocumentViewer>
+                        <PrivateDocumentPreview
+                            fileId={entry?.id || previewedFile?.id}
+                            fileType={previewedFile?.type || entry?.type || "pdf"}
+                            fileName={previewedFile?.name || entry?.name}
+                            downloadUrl={fileUrl[0].url as string}
+                        />
                     </div>
-                
                 )
-                    
             }
 
             case "Image" : {
