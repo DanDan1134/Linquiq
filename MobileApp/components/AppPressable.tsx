@@ -18,10 +18,10 @@ import { MIN_TOUCH_SIZE } from "../utils/helpers";
 
 /** Modest slop only; keep adjacent buttons from fighting over the same pixels. */
 export const SAFE_HIT_SLOP = {
-  top: 10,
-  bottom: 10,
-  left: 10,
-  right: 10,
+  top: 6,
+  bottom: 6,
+  left: 6,
+  right: 6,
 } as const;
 
 type AppPressableProps = PressableProps & {
@@ -41,7 +41,7 @@ export function AppPressable({
   return (
     <Pressable
       hitSlop={hitSlop ?? SAFE_HIT_SLOP}
-      pressRetentionOffset={SAFE_HIT_SLOP}
+      pressRetentionOffset={hitSlop ?? SAFE_HIT_SLOP}
       style={({ pressed }) => [
         fillParent
           ? undefined

@@ -24,7 +24,7 @@ interface CameraModalProps {
 }
 
 /** Light slop around the already-large control boxes. */
-const CONTROL_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 } as const;
+const CONTROL_HIT_SLOP = { top: 6, bottom: 6, left: 6, right: 6 } as const;
 
 export const CameraModal: React.FC<CameraModalProps> = ({
   isVisible,

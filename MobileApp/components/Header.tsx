@@ -222,7 +222,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Sync status: icon + soft label (only icon spins while syncing) */}
           <TouchableOpacity
             onPress={onSyncPress}
-            hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 2 }}
             delayPressIn={0}
             accessibilityLabel={
               syncStatus === "syncing"
@@ -274,7 +274,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Settings / avatar button */}
           <TouchableOpacity
             onPress={onSettingsPress}
-            hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+            hitSlop={{ top: 6, bottom: 6, left: 2, right: 6 }}
             delayPressIn={0}
             accessibilityLabel="Open settings"
             className="w-12 h-12 items-center justify-center"
@@ -318,7 +318,7 @@ export const Header: React.FC<HeaderProps> = ({
             className="bg-button-outline rounded-lg flex-row items-center justify-center px-3"
             style={[styles.linqButtonWrap, { height: HEADER_CONTROL_HEIGHT }]}
             onPress={onLinkPress}
-            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 2 }}
             delayPressIn={0}
             accessibilityRole="button"
             accessibilityLabel="Create linq"
@@ -364,7 +364,7 @@ export const Header: React.FC<HeaderProps> = ({
                   onPress={() => onSearchChange("")}
                   className="w-10 h-12 rounded-full items-center justify-center"
                   accessibilityLabel="Clear search"
-                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  hitSlop={{ top: 6, bottom: 6, left: 2, right: 0 }}
                   delayPressIn={0}
                 >
                   <FontAwesomeIcon icon={faXmark} size={12} color="#D7827E" />
@@ -373,7 +373,7 @@ export const Header: React.FC<HeaderProps> = ({
               <TouchableOpacity
                 onPress={onFilterPress}
                 className="w-12 h-12 rounded-full items-center justify-center"
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
+                hitSlop={{ top: 6, bottom: 6, left: 0, right: 4 }}
                 delayPressIn={0}
                 accessibilityRole="button"
                 accessibilityLabel={
@@ -441,7 +441,7 @@ export const Header: React.FC<HeaderProps> = ({
                     height: HEADER_CONTROL_HEIGHT,
                   }}
                   accessibilityLabel={`Delete ${selectedFileCount} selected file(s)`}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  hitSlop={{ top: 6, bottom: 6, left: 2, right: 4 }}
                   delayPressIn={0}
                 >
                   {isDeletingFiles ? (

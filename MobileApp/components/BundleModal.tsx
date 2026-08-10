@@ -836,7 +836,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                         }}
                         activeOpacity={0.7}
                         className="ml-2 bg-button-outline rounded-md px-4 min-h-[52px] items-center justify-center"
-                        hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
                         <Text className="text-black text-sm font-semibold">Open →</Text>
                       </TouchableOpacity>
@@ -936,7 +936,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                         }}
                         className="mt-3 bg-button-outline rounded-md px-4 min-h-[52px] items-center justify-center"
                         activeOpacity={0.7}
-                        hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
                         <Text className="text-black font-semibold text-sm">
                           Extract Contents
@@ -1058,7 +1058,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                               justifyContent: "center",
                               opacity: getOpenInTabTarget(file) ? 1 : 0.5,
                             }}
-                            hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                           >
                             <Text style={{ color: "#fff", fontWeight: "600", textAlign: "center" }}>
                               Open in Files
@@ -1113,7 +1113,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                               minHeight: 52,
                               justifyContent: "center",
                             }}
-                            hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                           >
                             <Text style={{ color: "#111827", fontWeight: "700" }}>
                               Open PDF
@@ -1210,7 +1210,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                           onPress={() => handleAudioToggle(file)}
                           className={`rounded-md px-3 items-center justify-center ${playingId === file.id ? "bg-red-600" : "bg-button-outline"}`}
                           style={styles.audioButton}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                           accessibilityRole="button"
                           accessibilityLabel={
                             playingId === file.id

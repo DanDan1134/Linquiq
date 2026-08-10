@@ -49,8 +49,9 @@ export const FILE_CARD_HEIGHT = 72;
 
 const MAX_FILE_LIST_NAME_CHARS = 24;
 
-/** Extra room beyond the dedicated 52×52 checkbox touch box. */
-const CHECKBOX_HIT_SLOP = { top: 10, bottom: 10, left: 14, right: 0 } as const;
+/** Extra room beyond the dedicated 52×52 checkbox touch box.
+ * Vertical must stay ≤ half FileList ROW_GAP so stacked cards do not steal taps. */
+const CHECKBOX_HIT_SLOP = { top: 4, bottom: 4, left: 8, right: 0 } as const;
 
 type FileCardFile = {
   id: string;
@@ -338,7 +339,7 @@ const FileCardBase: React.FC<FileCardProps> = ({
       <TouchableOpacity
         onPress={handleCardPress}
         activeOpacity={0.7}
-        hitSlop={{ top: 4, bottom: 4, left: 0, right: 4 }}
+        hitSlop={{ top: 2, bottom: 2, left: 0, right: 2 }}
         delayPressIn={0}
         style={styles.cardOpenTarget}
         accessibilityRole="button"

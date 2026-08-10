@@ -136,7 +136,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
                 onPress={handleClose}
                 className="rounded-full items-center justify-center"
                 style={styles.closeButton}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                 delayPressIn={0}
                 accessibilityRole="button"
                 accessibilityLabel="Close note"
@@ -165,7 +165,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
                 className="bg-button-outline rounded-lg px-5 items-center justify-center"
                 style={styles.saveButton}
                 onPress={onSave}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                 delayPressIn={0}
                 accessibilityRole="button"
               >

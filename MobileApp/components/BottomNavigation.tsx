@@ -30,7 +30,7 @@ interface BottomNavigationProps {
 }
 
 /** Vertical-only slop; columns already fill width so side slop would overlap neighbors. */
-const NAV_HIT_SLOP = { top: 16, bottom: 16, left: 0, right: 0 } as const;
+const NAV_HIT_SLOP = { top: 8, bottom: 8, left: 0, right: 0 } as const;
 
 const formatTime = (seconds: number) => {
   const mins = Math.floor(seconds / 60);

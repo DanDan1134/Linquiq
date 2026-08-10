@@ -106,33 +106,34 @@ export const TOUCH_TARGET_BOX = {
 
 /**
  * Modest slop for icon buttons that already use MIN_TOUCH_SIZE.
- * Keep this small so neighboring controls do not overlap (overlapping
- * hit areas cause intermittent missed / stolen taps on both platforms).
+ * Keep facing sides tiny so neighbors with HEADER_ACTION_SEPARATOR
+ * (or tighter gaps) never share the same tap pixels.
  */
 export const ICON_HIT_SLOP = {
-  top: 10,
-  bottom: 10,
-  left: 10,
-  right: 10,
+  top: 6,
+  bottom: 6,
+  left: 4,
+  right: 4,
 } as const;
 
 /** Hit slop for expand / bundle-shell fullscreen icon chips. */
 export const HEADER_ACTION_HIT_SLOP = {
-  top: 12,
-  bottom: 12,
-  left: 8,
-  right: 8,
+  top: 6,
+  bottom: 6,
+  left: 4,
+  right: 4,
 } as const;
 
 /**
  * Close (×) controls. Rely on a large min touch box + light slop —
  * not a huge radius that collides with the button next to it.
+ * Left must stay ≤ HEADER_ACTION_SEPARATOR − HEADER_ACTION_HIT_SLOP.right.
  */
 export const HEADER_CLOSE_HIT_SLOP = {
-  top: 12,
-  bottom: 12,
-  left: 12,
-  right: 12,
+  top: 6,
+  bottom: 6,
+  left: 4,
+  right: 6,
 } as const;
 
 const COPY_SUCCESS_FEEDBACK_MS = 2000;

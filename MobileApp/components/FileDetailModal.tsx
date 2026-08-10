@@ -753,7 +753,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                   <TouchableOpacity
                     onPress={() => void handleOpenDocument()}
                     style={styles.accentButton}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                     accessibilityRole="button"
                   >
                     <Text style={styles.accentButtonText}>Open in Files</Text>
@@ -799,7 +799,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                           styles.primaryButton,
                           { opacity: canOpenDocument ? 1 : 0.5 },
                         ]}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                       >
                         <Text style={styles.primaryButtonText}>Open in Files</Text>
                       </TouchableOpacity>
@@ -823,7 +823,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                       styles.centeredButton,
                       { opacity: canOpenDocument ? 1 : 0.45 },
                     ]}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                     accessibilityRole="button"
                   >
                     <Text style={styles.accentButtonText}>Open in Files</Text>
@@ -837,7 +837,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                     onPress={handleAudioToggle}
                     disabled={isAudioLoading}
                     style={styles.audioButton}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                     accessibilityRole="button"
                     accessibilityLabel={isAudioPlaying ? "Pause audio" : "Play audio"}
                   >

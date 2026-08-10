@@ -7,7 +7,6 @@ import {
   getFilePreviewUrl,
   getFilePreviewUrlLabel,
   isFilePreviewUrlLive,
-  ICON_HIT_SLOP,
 } from "../utils/helpers";
 import { openHttpUrl } from "../utils/openHttpUrl";
 
@@ -77,7 +76,7 @@ function MetadataUrlRow({ fileId }: { fileId?: string | null }) {
             accessibilityRole="link"
             accessibilityLabel={`Open ${liveUrl}`}
             style={styles.linkTouch}
-            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+            hitSlop={{ top: 6, bottom: 6, left: 4, right: 0 }}
           >
             <Text style={styles.link} numberOfLines={1} ellipsizeMode="tail">
               {liveUrl}
@@ -85,7 +84,7 @@ function MetadataUrlRow({ fileId }: { fileId?: string | null }) {
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleCopy}
-            hitSlop={ICON_HIT_SLOP}
+            hitSlop={{ top: 6, bottom: 6, left: 0, right: 6 }}
             accessibilityLabel="Copy file link"
             accessibilityRole="button"
             style={styles.copyButton}
@@ -146,7 +145,7 @@ export function CollapsibleFileDetails({
       <TouchableOpacity
         onPress={() => setExpanded((v) => !v)}
         activeOpacity={0.7}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
         style={styles.summaryRow}
         accessibilityRole="button"
         accessibilityState={{ expanded }}

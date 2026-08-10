@@ -77,7 +77,7 @@ export function SearchFilterModal({
                 onPress={onReset}
                 style={[styles.headerResetButton, !hasAnyFilterApplied && styles.headerResetButtonDisabled]}
                 disabled={!hasAnyFilterApplied}
-                hitSlop={{ top: 14, bottom: 14, left: 10, right: 6 }}
+                hitSlop={{ top: 6, bottom: 6, left: 4, right: 2 }}
               >
                 <Text
                   style={[
@@ -91,7 +91,7 @@ export function SearchFilterModal({
               <TouchableOpacity
                 onPress={onClose}
                 style={styles.closeButton}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                hitSlop={{ top: 6, bottom: 6, left: 2, right: 6 }}
                 delayPressIn={0}
                 accessibilityRole="button"
                 accessibilityLabel="Close filters"
@@ -111,7 +111,7 @@ export function SearchFilterModal({
                   key={key}
                   onPress={() => onToggleFilter(typedKey)}
                   style={[styles.filterRow, active && styles.filterRowActive]}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  hitSlop={{ top: 2, bottom: 2, left: 4, right: 4 }}
                 >
                   <Text
                     style={[styles.filterLabel, active && styles.filterLabelActive]}
@@ -136,7 +136,7 @@ export function SearchFilterModal({
                     key={option.value}
                     onPress={() => onSubmissionTimeChange(option.value)}
                     style={[styles.timeChip, active && styles.timeChipActive]}
-                    hitSlop={{ top: 12, bottom: 12, left: 6, right: 6 }}
+                    hitSlop={{ top: 4, bottom: 4, left: 2, right: 2 }}
                   >
                     <Text
                       style={[styles.timeChipLabel, active && styles.timeChipLabelActive]}
@@ -153,7 +153,7 @@ export function SearchFilterModal({
             <TouchableOpacity
               onPress={onClose}
               style={styles.applyButton}
-              hitSlop={{ top: 14, bottom: 14, left: 12, right: 12 }}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
               <Text style={styles.applyText}>Apply</Text>
             </TouchableOpacity>

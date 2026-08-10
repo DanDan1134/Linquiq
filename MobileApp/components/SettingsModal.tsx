@@ -93,7 +93,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             onPress={onClose}
             accessibilityLabel="Close settings"
             accessibilityRole="button"
-            hitSlop={12}
+            hitSlop={6}
             style={({ pressed }) => [
               styles.closeBtn,
               pressed && styles.closeBtnPressed,
@@ -124,7 +124,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <Pressable
             onPress={confirmLogout}
             accessibilityRole="button"
-            hitSlop={16}
+            hitSlop={6}
             style={({ pressed }) => [
               styles.logoutBtn,
               pressed && styles.logoutPressed,

@@ -55,7 +55,7 @@ export const FullscreenImageOverlay: React.FC<FullscreenImageOverlayProps> = ({
         <TouchableOpacity
           onPress={onClose}
           activeOpacity={0.8}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
           delayPressIn={0}
           accessibilityRole="button"
           accessibilityLabel="Close image preview"
