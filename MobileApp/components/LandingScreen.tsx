@@ -57,7 +57,6 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
         <TouchableOpacity
           onPress={onLoginPress}
           className="border-2 border-button-outline rounded-md py-3 min-h-[52px] mb-4 items-center justify-center"
-          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
           delayPressIn={0}
         >
           <Text className="text-button-outline font-semibold">Log In</Text>
@@ -66,7 +65,6 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
         <TouchableOpacity
           onPress={onSignUpPress}
           className="border-2 border-button-outline rounded-md py-3 min-h-[52px] items-center justify-center"
-          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
           delayPressIn={0}
         >
           <Text className="text-button-outline font-semibold">Sign Up</Text>

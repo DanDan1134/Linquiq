@@ -91,7 +91,6 @@ function MetadataUrlRow({
             accessibilityRole="link"
             accessibilityLabel={`Open ${liveUrl}`}
             style={styles.linkTouch}
-            hitSlop={{ top: 6, bottom: 6, left: 4, right: 0 }}
           >
             <Text style={styles.link} numberOfLines={1} ellipsizeMode="tail">
               {liveUrl}
@@ -99,7 +98,6 @@ function MetadataUrlRow({
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleCopy}
-            hitSlop={{ top: 6, bottom: 6, left: 0, right: 6 }}
             accessibilityLabel="Copy file link"
             accessibilityRole="button"
             style={styles.copyButton}
@@ -164,7 +162,6 @@ export function CollapsibleFileDetails({
       <TouchableOpacity
         onPress={() => setExpanded((v) => !v)}
         activeOpacity={0.7}
-        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
         style={styles.summaryRow}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
@@ -215,7 +212,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 26,
+    minHeight: 48,
   },
   summary: {
     color: "#D1D5DB",
@@ -265,7 +262,10 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   copyButton: {
-    marginLeft: 8,
-    padding: 2,
+    marginLeft: 4,
+    minWidth: 48,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

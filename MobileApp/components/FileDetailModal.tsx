@@ -28,7 +28,6 @@ import {
   isOfflineImageOrPdfPreviewBlocked,
   previewFixingMessage,
   formatLinqCreatedDisplay,
-  HEADER_CLOSE_HIT_SLOP,
 } from "../utils/helpers";
 import { PreviewFallbackBanner } from "./PreviewFallbackBanner";
 import { OfflinePreviewNotice } from "./OfflinePreviewNotice";
@@ -47,6 +46,13 @@ type FileDetailModalProps = {
   fetchUrl?: (fileId: string) => Promise<string | null>;
   /** When true, open directly in fullscreen (e.g. linq child). Back from fullscreen dismisses to the linq, not compact preview. */
   startFullscreen?: boolean;
+  /**
+   * Render as an absolute-fill overlay inside the parent's own <Modal> instead of
+   * mounting a second native Modal. Stacking two RN Modals on iOS leaves the outer
+   * Modal's touch handler broken after the inner one closes (buttons go dead/offset
+   * everywhere until the app restarts) — see BundleModal's nested usage.
+   */
+  hostedInModal?: boolean;
 };
 
 // Strip HTML to plain text and preserve line breaks (web app uses <p>, <br>, etc.)
@@ -105,6 +111,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
   getTypeColor,
   fetchUrl,
   startFullscreen = false,
+  hostedInModal = false,
 }) => {
   // ⚠️ Do NOT return before hooks; decide rendering after hooks run.
   const hidden = !isVisible || !selectedFile;
@@ -590,17 +597,12 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     />
   );
 
-  return (
-    <Modal
-      visible
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      statusBarTranslucent
-    >
+  const overlay = (
     <View
-      className="flex-1"
       style={[
+        hostedInModal
+          ? { ...StyleSheet.absoluteFillObject, zIndex: 50, elevation: 50 }
+          : { flex: 1 },
         { backgroundColor: "rgba(0,0,0,0.75)" },
         contentFullscreen
           ? { paddingBottom: insets.bottom }
@@ -634,7 +636,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                 setFullscreenOverride(false);
               }}
               style={styles.headerButton}
-              hitSlop={HEADER_CLOSE_HIT_SLOP}
               accessibilityLabel={
                 startFullscreen ? "Back to linq" : "Back to file preview"
               }
@@ -661,7 +662,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
             <TouchableOpacity
               onPress={onClose}
               style={styles.headerButton}
-              hitSlop={HEADER_CLOSE_HIT_SLOP}
               accessibilityLabel="Close file details"
               accessibilityRole="button"
             >
@@ -755,7 +755,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                   <TouchableOpacity
                     onPress={() => void handleOpenDocument()}
                     style={styles.accentButton}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                     accessibilityRole="button"
                   >
                     <Text style={styles.accentButtonText}>Open in Files</Text>
@@ -801,7 +800,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                           styles.primaryButton,
                           { opacity: canOpenDocument ? 1 : 0.5 },
                         ]}
-                        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                       >
                         <Text style={styles.primaryButtonText}>Open in Files</Text>
                       </TouchableOpacity>
@@ -825,7 +823,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                       styles.centeredButton,
                       { opacity: canOpenDocument ? 1 : 0.45 },
                     ]}
-                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                     accessibilityRole="button"
                   >
                     <Text style={styles.accentButtonText}>Open in Files</Text>
@@ -839,7 +836,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                     onPress={handleAudioToggle}
                     disabled={isAudioLoading}
                     style={styles.audioButton}
-                    hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                     accessibilityRole="button"
                     accessibilityLabel={isAudioPlaying ? "Pause audio" : "Play audio"}
                   >
@@ -911,6 +907,21 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
         onClose={() => setFullscreenImageUri(null)}
       />
     </View>
+  );
+
+  if (hostedInModal) {
+    return overlay;
+  }
+
+  return (
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      {overlay}
     </Modal>
   );
 };
@@ -950,7 +961,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 8,
-    minHeight: 44,
+    minHeight: 48,
     justifyContent: "center",
   },
   primaryButtonText: {
@@ -962,7 +973,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 8,
-    minHeight: 44,
+    minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -95,8 +95,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onBack
             />
             <TouchableOpacity
               onPress={() => setShowPassword((v) => !v)}
-              className="px-3 py-3"
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+              className="items-center justify-center"
+              style={{ minWidth: 48, minHeight: 48 }}
               accessibilityRole="button"
               accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
             >
@@ -113,7 +113,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onBack
           onPress={onSubmit}
           disabled={busy}
           className="bg-button-outline rounded-md py-3 items-center justify-center mb-4 min-h-[52px]"
-          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
         >
           {busy ? <ActivityIndicator color="#000" /> : (
             <Text className="text-black font-semibold">Submit</Text>
@@ -123,7 +122,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onBack
         <TouchableOpacity
           onPress={onBackPress}
           className="min-h-[52px] w-full items-center justify-center"
-          hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
         >
           <Text className="text-gray-400">Back</Text>
         </TouchableOpacity>

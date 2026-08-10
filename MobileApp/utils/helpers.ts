@@ -124,54 +124,19 @@ export const getTypeColor = (color: string) => {
   }
 };
 
-/** Horizontal gap after Copy / before Expand (keeps touch slops from overlapping). */
+/** Horizontal gap after Copy / before Expand (keeps adjacent buttons' real boxes apart). */
 export const HEADER_ACTION_SEPARATOR = 14;
 
 /** Extra gap between fullscreen/expand and the close (×) control. */
 export const HEADER_EXPAND_TO_CLOSE_GAP = 20;
 
-/** Apple HIG / Material minimum comfortable touch target. */
+/**
+ * Apple HIG / Material minimum comfortable touch target (44pt iOS / 48dp Android).
+ * Buttons should meet this with their real drawn size — no hitSlop. hitSlop can
+ * overlap a neighbor's slop zone, or go stale after RN's Modal-stacking touch bug,
+ * both of which make taps miss or land on the wrong control.
+ */
 export const MIN_TOUCH_SIZE = 52;
-
-/** Square box that guarantees a 52×52 tap area around a small icon. */
-export const TOUCH_TARGET_BOX = {
-  minWidth: MIN_TOUCH_SIZE,
-  minHeight: MIN_TOUCH_SIZE,
-  alignItems: "center",
-  justifyContent: "center",
-} as const;
-
-/**
- * Modest slop for icon buttons that already use MIN_TOUCH_SIZE.
- * Keep facing sides tiny so neighbors with HEADER_ACTION_SEPARATOR
- * (or tighter gaps) never share the same tap pixels.
- */
-export const ICON_HIT_SLOP = {
-  top: 6,
-  bottom: 6,
-  left: 4,
-  right: 4,
-} as const;
-
-/** Hit slop for expand / bundle-shell fullscreen icon chips. */
-export const HEADER_ACTION_HIT_SLOP = {
-  top: 6,
-  bottom: 6,
-  left: 4,
-  right: 4,
-} as const;
-
-/**
- * Close (×) controls. Rely on a large min touch box + light slop —
- * not a huge radius that collides with the button next to it.
- * Left must stay ≤ HEADER_ACTION_SEPARATOR − HEADER_ACTION_HIT_SLOP.right.
- */
-export const HEADER_CLOSE_HIT_SLOP = {
-  top: 6,
-  bottom: 6,
-  left: 4,
-  right: 6,
-} as const;
 
 const COPY_SUCCESS_FEEDBACK_MS = 2000;
 
