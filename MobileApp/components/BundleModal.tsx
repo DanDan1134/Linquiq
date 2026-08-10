@@ -33,6 +33,7 @@ import {
   getDisplayFileNameForUi,
   previewFixingMessage,
   isOfflineImageOrPdfPreviewBlocked,
+  isSitePreviewUrl,
   HEADER_ACTION_SEPARATOR,
   HEADER_EXPAND_TO_CLOSE_GAP,
   HEADER_ACTION_HIT_SLOP,
@@ -198,14 +199,14 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     if (id) {
       const fromDb = String((localUriById as Record<string, string>)[id] ?? "").trim();
       if (fromDb) return fromDb;
+      const direct = String((pdfDirectUrlById as Record<string, string>)[id] ?? "").trim();
+      if (direct && !isSitePreviewUrl(direct)) return direct;
     }
     const local = String((file as any)?.local_uri ?? "").trim();
     if (local) return local;
     const remote = String(file?.url ?? "").trim();
-    if (remote) return remote;
-    if (id && !id.startsWith("opt-")) {
-      return `${API_BASE}/preview/${id}`;
-    }
+    // Never use the HTML /preview/{id} page as an Image/WebView media source.
+    if (remote && !isSitePreviewUrl(remote)) return remote;
     return "";
   };
 
@@ -229,11 +230,10 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     if (!isOnline && local) return local;
     if (id && !id.startsWith("opt-")) {
       const direct = String((pdfDirectUrlById as Record<string, string>)[id] ?? "").trim();
-      if (direct) return direct;
-      return `${API_BASE}/preview/${id}`;
+      if (direct && !isSitePreviewUrl(direct)) return direct;
     }
     const remote = String(file?.url ?? "").trim();
-    if (remote) return remote;
+    if (remote && !isSitePreviewUrl(remote)) return remote;
     if (local) return local;
     return "";
   };
@@ -308,22 +308,34 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     let cancelled = false;
     if (!isVisible || !fetchUrl) return;
 
-    const maybePdfFiles = (bundleData?.files ?? []).filter((f: any) => {
+    const mediaFiles = (bundleData?.files ?? []).filter((f: any) => {
       const id = String(f?.id ?? "").trim();
       if (!id || id.startsWith("opt-")) return false;
-      return isPdfLike(f);
+      // Prefetch direct URLs for PDFs and images (not the HTML /preview page).
+      return isPdfLike(f) || isImageFile(f);
     });
-    if (maybePdfFiles.length === 0) return;
+    if (mediaFiles.length === 0) return;
 
     (async () => {
       const updates: Record<string, string> = {};
       await Promise.all(
-        maybePdfFiles.map(async (file: any) => {
+        mediaFiles.map(async (file: any) => {
           const id = String(file?.id ?? "").trim();
           if (!id) return;
+          const existing = String(
+            (pdfDirectUrlById as Record<string, string>)[id] ?? ""
+          ).trim();
+          if (existing && !isSitePreviewUrl(existing)) return;
+          const local = getFileLocalUri(file);
+          if (local) return;
+          const remoteExisting = String(file?.url ?? "").trim();
+          if (remoteExisting && !isSitePreviewUrl(remoteExisting)) {
+            updates[id] = remoteExisting;
+            return;
+          }
           const direct = await fetchUrl(id).catch(() => null);
           const clean = String(direct ?? "").trim();
-          if (clean) updates[id] = clean;
+          if (clean && !isSitePreviewUrl(clean)) updates[id] = clean;
         })
       );
       if (!cancelled && Object.keys(updates).length > 0) {
@@ -334,6 +346,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per open / file set
   }, [isVisible, bundleData?.files, fetchUrl]);
 
   // Stop audio when modal closes
@@ -1067,7 +1080,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                         </View>
                       );
                     }
-                    const isHttp = /^https?:\/\//i.test(inlinePdfUri);
                     // iOS WebView can show file:// PDFs offline; Android needs an external app when offline.
                     const shouldShowOpenPdfFallback =
                       (Platform.OS === "android" && !isOnline) ||
@@ -1123,8 +1135,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                       );
                     }
                     // Prevent raw PDF bytes ("%PDF-1.x ...") from rendering as text.
-                    // For remote URLs, always wrap with Google viewer; keep local file:// direct.
-                    const shouldUseGoogleViewer = isHttp;
+                    // Load the file URL directly — Google Drive's viewer blanks on S3 signed URLs.
                     return (
                       <View
                         className="mb-3"
@@ -1138,9 +1149,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                       >
                         <WebView
                           source={{
-                            uri: shouldUseGoogleViewer
-                              ? `https://drive.google.com/viewerng/viewer?embedded=true&url=${encodeURIComponent(inlinePdfUri)}`
-                              : inlinePdfUri,
+                            uri: inlinePdfUri,
                           }}
                           originWhitelist={["*"]}
                           onLoadStart={() => {

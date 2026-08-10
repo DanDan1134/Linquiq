@@ -25,16 +25,24 @@ import { logPerf } from '../utils/perfLog';
 
 export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'error';
 
-export type SyncPullResult = {
+/** How a sync snapshot was produced. Never infer this from `raw.length`
+ *  — an empty server list (all items deleted) is a valid online pull. */
+export type SyncCompleteSource = 'server' | 'cache' | 'offline';
+
+export type SyncCompletePayload = {
   files: LocalFile[];
   bundles: LocalBundle[];
   raw: any[];
+  source: SyncCompleteSource;
+};
+
+export type SyncPullResult = SyncCompletePayload & {
   changedFileIds?: string[];
 };
 
 type UseSyncStatusOptions = {
   /** Called with fresh data after a successful pull-merge. */
-  onSyncComplete: (data: { files: LocalFile[]; bundles: LocalBundle[]; raw: any[] }) => void;
+  onSyncComplete: (data: SyncCompletePayload) => void;
   /** Whether the user is currently logged in (sync only runs when true). */
   enabled: boolean;
 };
@@ -70,7 +78,12 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
       try {
         const files = await getAllFiles();
         const bundles = await getAllBundles();
-        const snapshot = { files, bundles, raw: [] as any[] };
+        const snapshot: SyncCompletePayload = {
+          files,
+          bundles,
+          raw: [],
+          source: 'offline',
+        };
         onSyncComplete(snapshot);
         if (__DEV__) {
           logPerf(
@@ -107,7 +120,8 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
       }
       // Update list immediately after pull so users can interact,
       // but keep status=syncing until cache download also finishes.
-      onSyncComplete(result);
+      // Tag as server even when raw is [] (everything deleted on web).
+      onSyncComplete({ ...result, source: 'server' });
 
       // 3. Cache stage:
       //    - Always run on first launch if SQLite still has pending/failed uncached rows.
@@ -131,7 +145,7 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
           // Refresh React state from SQLite so new local_uri/content appears immediately.
           const files = await getAllFiles();
           const bundles = await getAllBundles();
-          onSyncComplete({ files, bundles, raw: [] });
+          onSyncComplete({ files, bundles, raw: [], source: 'cache' });
           if (__DEV__) {
             logPerf(
               'sync',

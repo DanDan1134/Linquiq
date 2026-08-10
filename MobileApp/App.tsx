@@ -361,16 +361,21 @@ async function separateBundlesAndFiles(allItems: any[]): Promise<{
  * Merge server `raw` with SQLite-merged rows so dirty / local-only ids stay in the enrichment input.
  *
  * @param pendingOptIds  opt- ids currently sitting in the outbox (still uploading).
- *   When the server is available (raw.length > 0) and an opt- item is NOT in this set,
+ *   When the server is available and an opt- item is NOT in this set,
  *   we skip it — the upload finished and markFileSynced will rename the row shortly,
  *   so showing the opt- item alongside the server item would produce a duplicate.
+ * @param isServerSync  true after a real pull. Empty `raw` then means "deleted on server",
+ *   not "offline / unknown" — do not resurrect clean local rows.
  */
 function mergeRawWithMergedLists(
   raw: any[],
   mergedFiles: LocalFile[],
   mergedBundles: LocalBundle[],
-  pendingOptIds?: Set<string>
+  pendingOptIds?: Set<string>,
+  isServerSync = false
 ): any[] {
+  const serverReachable = isServerSync || raw.length > 0;
+
   const localFileToRaw = (f: LocalFile): any => {
     const item: any = {
       id: f.id,
@@ -405,22 +410,28 @@ function mergeRawWithMergedLists(
     const id = String(local?.id ?? "").trim();
     if (!id) return;
     const dirty = local.dirty === 1;
+    const pending =
+      pendingOptIds != null && pendingOptIds.has(id);
 
     // When the server is reachable and this is a dirty opt- item, only include it
     // if it still has a pending outbox job.  If the upload already completed,
     // markFileSynced will rename the row imminently — showing it now would create
     // a duplicate alongside the server item that already has the real id.
-    if (dirty && id.startsWith("opt-") && raw.length > 0 && pendingOptIds) {
+    if (dirty && id.startsWith("opt-") && serverReachable && pendingOptIds) {
       if (!pendingOptIds.has(id)) return;
     }
 
     if (dirty) {
+      // Server deleted this id and there is no pending local job — drop it.
+      if (serverReachable && !id.startsWith("opt-") && !byId.has(id) && !pending) {
+        return;
+      }
       byId.set(id, isBundle ? localBundleToRaw(local as LocalBundle) : localFileToRaw(local));
       return;
     }
     // During online sync, don't re-add clean server ids that are absent from raw.
     // Those were deleted on web (or another device) and should disappear locally.
-    if (raw.length > 0 && !id.startsWith("opt-") && !byId.has(id)) {
+    if (serverReachable && !id.startsWith("opt-") && !byId.has(id)) {
       return;
     }
     if (!byId.has(id)) {
@@ -1529,16 +1540,19 @@ const filteredFiles = useMemo(() => {
     markLocalChangePending,
   } = useSyncStatus({
     enabled: isLoggedIn && screen === 'home',
-    onSyncComplete: ({ files: freshFiles, bundles: freshBundles, raw }) => {
-      const isOnlineSync = raw.length > 0;
-      if (isOnlineSync) hasServerDataRef.current = true;
+    onSyncComplete: ({ files: freshFiles, bundles: freshBundles, raw, source }) => {
+      // Prefer explicit source. Fall back for any older callers that omit it.
+      const syncSource = source ?? (raw.length > 0 ? 'server' : 'offline');
+      const isServerSync = syncSource === 'server';
+      const isCacheSync = syncSource === 'cache';
+      if (isServerSync) hasServerDataRef.current = true;
 
       InteractionManager.runAfterInteractions(async () => {
         try {
           // After we've shown server-backed data, ignore an *empty* offline SQLite
-          // snapshot (avoids wiping the list mid-session). Still merge when SQLite
-          // has rows so cold start / refresh offline can repopulate the UI.
-          if (!isOnlineSync && hasServerDataRef.current) {
+          // snapshot (avoids wiping the list mid-session). Cache + server must still
+          // apply empty lists so web deletes clear the UI.
+          if (syncSource === 'offline' && hasServerDataRef.current) {
             const n = freshFiles.length + freshBundles.length;
             if (n === 0) return;
           }
@@ -1550,13 +1564,19 @@ const filteredFiles = useMemo(() => {
             date: f.date ?? f.createdAt ?? '',
           });
 
-          if (!isOnlineSync) {
-            // ── Offline fast path ───────────────────────────────────────────
+          if (!isServerSync) {
+            // ── Offline / post-cache fast path ───────────────────────────────
             // Skip separateBundlesAndFiles: it calls NetInfo + getContents and
             // can hang/throw/produce empty bundles offline.
             // Decorate SQLite rows directly and resolve Linq children from the
             // in-memory fileMap — zero network needed.
-            if (freshFiles.length === 0 && freshBundles.length === 0) return;
+            if (
+              syncSource === 'offline' &&
+              freshFiles.length === 0 &&
+              freshBundles.length === 0
+            ) {
+              return;
+            }
             const isLinqT = (t: string) => {
               const l = String(t ?? '').toLowerCase();
               return l === 'link' || l === 'bundle' || l === 'linq';
@@ -1579,8 +1599,17 @@ const filteredFiles = useMemo(() => {
               }
               return dec;
             });
-            setBundles(decoratedBundles);
-            setUserFiles(decoratedFiles);
+            // Cache refresh after a pull that deleted everything: clear UI.
+            if (isCacheSync || decoratedFiles.length + decoratedBundles.length > 0) {
+              setBundles(decoratedBundles);
+              setUserFiles(decoratedFiles);
+              if (isCacheSync) {
+                lastFingerprintRef.current = [...decoratedFiles, ...decoratedBundles]
+                  .map((i: any) => `${i.id ?? ''}:${i.createdAt ?? ''}`)
+                  .sort()
+                  .join('|');
+              }
+            }
             return;
           }
 
@@ -1591,7 +1620,13 @@ const filteredFiles = useMemo(() => {
             pendingOptIds = new Set([...fileIds, ...bundleIds]);
           } catch { /* non-fatal */ }
 
-          const mergedInput = mergeRawWithMergedLists(raw, freshFiles, freshBundles, pendingOptIds);
+          const mergedInput = mergeRawWithMergedLists(
+            raw,
+            freshFiles,
+            freshBundles,
+            pendingOptIds,
+            true
+          );
           const fp = mergedInput
             .map((i: any) => `${i.id ?? ''}:${i.createdAt ?? ''}`)
             .sort()
@@ -1604,6 +1639,36 @@ const filteredFiles = useMemo(() => {
           setUserFiles(enrichedFiles.map(decorateRow));
         } catch (e) {
           console.warn('[sync] onSyncComplete enrichment failed:', e);
+          // Still apply the SQLite snapshot so web deletes are not stuck in UI
+          // when enrichment fails after a successful purge.
+          if (isServerSync || isCacheSync) {
+            try {
+              const isLinqT = (t: string) => {
+                const l = String(t ?? '').toLowerCase();
+                return l === 'link' || l === 'bundle' || l === 'linq';
+              };
+              setUserFiles(
+                freshFiles
+                  .filter((f: any) => !isLinqT(f.type))
+                  .map((f: any) => ({
+                    ...f,
+                    typeColor:
+                      f.typeColor ?? colorFromCategory(categoryFromExt(f.type ?? '')),
+                    date: f.date ?? f.createdAt ?? '',
+                  }))
+              );
+              setBundles(
+                freshBundles.map((b: any) => ({
+                  ...b,
+                  typeColor:
+                    b.typeColor ?? colorFromCategory(categoryFromExt(b.type ?? '')),
+                  date: b.date ?? b.createdAt ?? '',
+                }))
+              );
+            } catch {
+              /* non-fatal */
+            }
+          }
         }
       });
     },
@@ -1800,9 +1865,11 @@ const filteredFiles = useMemo(() => {
 
       // ── Try server fetch; silently fall back to empty when offline ────────────
       let raw: any[] = [];
+      let serverListOk = false;
       t = Date.now();
       try {
         raw = await fetchAllFiles();
+        serverListOk = true;
       } catch {
         console.log(
           `[files] API list unreachable · SQLite-only · local read was ${msSqliteRead}ms`
@@ -1814,7 +1881,7 @@ const filteredFiles = useMemo(() => {
       // Used by mergeRawWithMergedLists to avoid showing opt- items that have
       // already been uploaded (their server id will arrive with markFileSynced).
       let pendingOptIds: Set<string> | undefined;
-      if (raw.length > 0) {
+      if (serverListOk) {
         try {
           const { fileIds, bundleIds } = await getOutboxReferencedIds();
           pendingOptIds = new Set([...fileIds, ...bundleIds]);
@@ -1822,12 +1889,18 @@ const filteredFiles = useMemo(() => {
       }
 
       // Merge server list with local SQLite so opt- items survive the refresh.
-      const merged = mergeRawWithMergedLists(raw, localFiles, localBundles, pendingOptIds);
+      const merged = mergeRawWithMergedLists(
+        raw,
+        localFiles,
+        localBundles,
+        pendingOptIds,
+        serverListOk
+      );
 
       // ── Client fingerprint: skip enrichment when list unchanged (silent syncs) ──
       // When there is no server payload (offline / fetch failed), never skip — merged
       // list comes only from SQLite and must still run through enrichment.
-      if (opts?.silent && raw.length > 0) {
+      if (opts?.silent && serverListOk) {
         const fp = merged
           .map((i: any) => `${i.id ?? ""}:${i.createdAt ?? ""}`)
           .sort()
@@ -2172,8 +2245,31 @@ const filteredFiles = useMemo(() => {
         merged?.local_uri && String(merged.local_uri).trim() !== ""
           ? String(merged.local_uri)
           : undefined;
-      // Open from local file cache when available; avoid direct S3 opens.
-      url = localUri ?? (isInlineText ? merged?.url ?? url : undefined);
+
+      // Prefer on-device cache. For images/PDFs/etc., fall back to a fresh
+      // presigned S3 URL — never the HTML /preview/{id} page (RN Image/WebView
+      // cannot render that Clerk-auth page as media).
+      url = localUri ?? undefined;
+      if (!url) {
+        const existing = String(merged?.url ?? url ?? "").trim();
+        const looksLikeSitePreview =
+          /\/preview\/[^/?#]+/i.test(existing) ||
+          existing.includes("linquiq-sigma.vercel.app/preview/");
+        if (existing && !looksLikeSitePreview) {
+          url = existing;
+        } else if (isInlineText) {
+          url = existing || undefined;
+        } else if (canSyncThisFile) {
+          try {
+            const remote = await fetchUrl(id);
+            if (remote && String(remote).trim() !== "") {
+              url = String(remote).trim();
+            }
+          } catch (e) {
+            console.warn(`fetchUrl failed for ${id}`, e);
+          }
+        }
+      }
       extFromLocal = (merged?.contentType ?? extFromLocal ?? "").toLowerCase();
       nameFromLocal = merged?.name;
 

@@ -33,6 +33,21 @@ export function getFilePreviewUrl(fileId?: string | null): string {
   return `${API_BASE}/preview/${id}`;
 }
 
+/**
+ * True when a URI is the website HTML preview page (`/preview/{id}`), not binary media.
+ * RN Image / PDF WebView cannot render that Clerk-auth page.
+ */
+export function isSitePreviewUrl(uri?: string | null): boolean {
+  const u = String(uri ?? "").trim();
+  if (!u) return false;
+  try {
+    const path = u.split("?")[0].toLowerCase();
+    return /\/preview\/[^/]+\/?$/.test(path);
+  } catch {
+    return false;
+  }
+}
+
 /** True when the preview link can be opened in a browser (server UUID). */
 export function isFilePreviewUrlLive(fileId?: string | null): boolean {
   const id = String(fileId ?? "").trim();
