@@ -57,6 +57,21 @@ export function getFilePreviewUrl(fileId?: string | null): string {
 }
 
 /**
+ * True when a URI is the website HTML preview page (`/preview/{id}`), not binary media.
+ * RN Image / PDF WebView cannot render that Clerk-auth page.
+ */
+export function isSitePreviewUrl(uri?: string | null): boolean {
+  const u = String(uri ?? "").trim();
+  if (!u) return false;
+  try {
+    const path = u.split("?")[0].toLowerCase();
+    return /\/preview\/[^/]+\/?$/.test(path);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Clickable only when the entry is synced and the device is online.
  * Pending uploads still show the URL as plain text via getFilePreviewUrlLabel.
  */

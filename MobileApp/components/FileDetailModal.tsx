@@ -25,6 +25,7 @@ import { useVideoPlayer, VideoView } from "expo-video";
 import {
   getDisplayFileNameForUi,
   getFilePreviewUrl,
+  isSitePreviewUrl,
   isOfflineImageOrPdfPreviewBlocked,
   previewFixingMessage,
   formatLinqCreatedDisplay,
@@ -120,12 +121,24 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     selectedFile?.local_uri && String(selectedFile.local_uri).trim() !== ""
       ? String(selectedFile.local_uri)
       : undefined;
-  const fileUrl: string | undefined = localUri || selectedFile?.url;
+  const rawFileUrl = localUri || selectedFile?.url;
+  // Never feed the HTML /preview/{id} page into Image / PDF WebView.
+  const fileUrl: string | undefined =
+    rawFileUrl && !isSitePreviewUrl(rawFileUrl) ? rawFileUrl : undefined;
   const previewUrl = getFilePreviewUrl(selectedFile?.id) || undefined;
-  /** Prefer direct `url` / `local_uri`; else API preview so thumbnails and tiles still load. */
-  const displayMediaUri: string | undefined =
-    (fileUrl && String(fileUrl).trim() !== "" ? fileUrl : undefined) ??
-    (previewUrl && String(previewUrl).trim() !== "" ? previewUrl : undefined);
+  /** Prefer direct media URL / local_uri. Site preview is share-only, not for RN media. */
+  const [hydratedRemoteUrl, setHydratedRemoteUrl] = useState<string | undefined>(
+    undefined
+  );
+  const displayMediaUri: string | undefined = (() => {
+    const primary = fileUrl && String(fileUrl).trim() !== "" ? fileUrl : undefined;
+    if (primary) return primary;
+    const hydrated =
+      hydratedRemoteUrl && String(hydratedRemoteUrl).trim() !== ""
+        ? hydratedRemoteUrl
+        : undefined;
+    return hydrated && !isSitePreviewUrl(hydrated) ? hydrated : undefined;
+  })();
 
   const typeLabel = (selectedFile?.type ?? "").toString().toLowerCase();
   const bundleLikeRow =
@@ -160,14 +173,14 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     /\.pdf$/i.test(nameLower) ||
     /\.pdf$/i.test(filePathLower);
 
-  // Preview detectors
-  const isImagePreview = Boolean(
-    displayMediaUri &&
-      (typeLabel.includes("image") ||
-        ["png", "jpg", "jpeg", "gif", "bmp", "webp", "heic"].includes(serverExt) ||
-        /\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(nameLower) ||
-        /\.(png|jpe?g|gif|bmp|webp|heic)$/i.test(filePathLower))
-  );
+  // Preview detectors (type-based so we can hydrate a URL before displayMediaUri exists)
+  const isImageLike =
+    typeLabel.includes("image") ||
+    ["png", "jpg", "jpeg", "gif", "bmp", "webp", "heic"].includes(serverExt) ||
+    /\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(nameLower) ||
+    /\.(png|jpe?g|gif|bmp|webp|heic)$/i.test(filePathLower);
+
+  const isImagePreview = Boolean(isImageLike);
 
   const isAudioPreview = Boolean(
     displayMediaUri &&
@@ -205,16 +218,15 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       ((fileUrl && serverExt === "md") ||
         (inlineBody && (serverExt === "md" || /\.md$/i.test(nameLower))))
   );
-  const isPdfPreview = Boolean(displayMediaUri && isPdfLike);
+  const isPdfPreview = Boolean(isPdfLike);
 
   const isDocPreview = Boolean(
-    displayMediaUri &&
-      (serverExt === "doc" ||
-        serverExt === "docx" ||
-        /\.docx?$/i.test(nameLower) ||
-        serverExt === "application/msword" ||
-        serverExt ===
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    serverExt === "doc" ||
+      serverExt === "docx" ||
+      /\.docx?$/i.test(nameLower) ||
+      serverExt === "application/msword" ||
+      serverExt ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
   const isDocumentLike = isPdfLike || isDocPreview;
   // ---- Text / Markdown content (inline body or fetch from URL) ----
@@ -423,6 +435,34 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
   const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
   const netInfo = useNetInfo();
   const isOnline = netInfo.isConnected !== false;
+
+  // Hydrate a presigned media URL when openFileDetail could not supply one.
+  useEffect(() => {
+    if (!isVisible) {
+      setHydratedRemoteUrl(undefined);
+      return;
+    }
+    setHydratedRemoteUrl(undefined);
+    if (fileUrl) return;
+    if (!fetchUrl) return;
+    const id = String(selectedFile?.id ?? "").trim();
+    if (!id || id.startsWith("opt-")) return;
+    if (!isOnline) return;
+
+    let cancelled = false;
+    void fetchUrl(id)
+      .then((remote) => {
+        if (cancelled) return;
+        const u = String(remote ?? "").trim();
+        if (u && !isSitePreviewUrl(u)) setHydratedRemoteUrl(u);
+      })
+      .catch(() => {
+        /* non-fatal — fallback banner handles missing media */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, fileUrl, selectedFile?.id, fetchUrl, isOnline]);
   /** Image preview: avoid a blank tile while decoding or on failure. */
   const [imagePreviewStatus, setImagePreviewStatus] = useState<
     "loading" | "ready" | "error"
@@ -762,14 +802,10 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                 </View>
               )}
 
-              {/* PDF inline viewer (same behavior as BundleModal) */}
+              {/* PDF inline viewer — load the file URL directly.
+                  Google Drive's viewer often blanks on S3 signed URLs. */}
               {isPdfPreview && pdfUriForWebView && (() => {
-                const shouldUseGoogleViewer = /^https?:\/\//i.test(pdfUriForWebView);
-                const sourceUri = shouldUseGoogleViewer
-                  ? `https://drive.google.com/viewerng/viewer?embedded=true&url=${encodeURIComponent(
-                      pdfUriForWebView
-                    )}`
-                  : pdfUriForWebView;
+                const sourceUri = pdfUriForWebView;
                 return (
                 <View style={[styles.mediaFrame, { height: pdfPreviewHeight }]}>
                   <WebView
