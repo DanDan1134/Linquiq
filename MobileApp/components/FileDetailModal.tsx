@@ -476,8 +476,11 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
   );
   const insets = useSafeAreaInsets();
 
-  const contentFullscreen =
-    fullscreenOverride !== undefined
+  // Standalone host uses a real fullScreen Modal (no transparent sheet). Nested
+  // host (Bundle) keeps the existing startFullscreen / override behavior.
+  const contentFullscreen = !hostedInModal
+    ? true
+    : fullscreenOverride !== undefined
       ? fullscreenOverride
       : Boolean(isVisible && startFullscreen);
 
@@ -605,8 +608,10 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     });
   };
 
-  // After all hooks are called, it's safe to render nothing.
-  if (hidden) return null;
+  // Nested View overlay can unmount when closed. Standalone Modal must stay
+  // mounted with visible={false} so iOS hit-testing is not left offset.
+  if (hostedInModal && hidden) return null;
+  if (!selectedFile) return null;
 
   /** Collapsed line: the two facts worth scanning without opening details. */
   const detailsSummary = [
@@ -669,7 +674,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
           {contentFullscreen ? (
             <TouchableOpacity
               onPress={() => {
-                if (startFullscreen) {
+                if (startFullscreen || !hostedInModal) {
                   onClose();
                   return;
                 }
@@ -677,7 +682,11 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
               }}
               style={styles.headerButton}
               accessibilityLabel={
-                startFullscreen ? "Back to linq" : "Back to file preview"
+                startFullscreen
+                  ? "Back to linq"
+                  : !hostedInModal
+                    ? "Close file details"
+                    : "Back to file preview"
               }
               accessibilityRole="button"
             >
@@ -950,11 +959,11 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
 
   return (
     <Modal
-      visible
-      transparent
-      animationType="none"
+      visible={isVisible}
+      animationType="slide"
+      presentationStyle="fullScreen"
       onRequestClose={onClose}
-      statusBarTranslucent
+      supportedOrientations={["portrait", "landscape"]}
     >
       {overlay}
     </Modal>

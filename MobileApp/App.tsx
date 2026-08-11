@@ -3427,10 +3427,11 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
         isVisible={isBundleDetailVisible}
         bundleData={selectedBundle}
         onClose={() => {
+          // Hide first so BundleModal can dismiss via visible={false}.
+          setIsBundleDetailVisible(false);
           bundleOpenTokenRef.current = null;
           setSelectedBundleUuid(null);
           setSelectedBundle(null);
-          setIsBundleDetailVisible(false);
         }}
         getTypeColor={getTypeColor}
         onNestedBundlePress={(nestedBundle) => {

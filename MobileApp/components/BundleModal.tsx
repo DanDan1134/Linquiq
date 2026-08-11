@@ -82,7 +82,7 @@ interface BundleModalProps {
     id?: string;
     contentType?: string;
     isHydratingChildren?: boolean;
-  };
+  } | null;
   onClose: () => void;
   getTypeColor: (color: string) => string;
   onNestedBundlePress?: (nestedBundle: any) => void;
@@ -102,24 +102,30 @@ export const BundleModal: React.FC<BundleModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [overlayChildFile, setOverlayChildFile] = useState<BundleFile | null>(null);
-  const [bundleShellFullscreen, setBundleShellFullscreen] = useState(false);
+  // Opaque fullScreen Modal — fill the screen (no transparent 72% sheet).
+  const bundleShellFullscreen = true;
   const [copyUrlsShellFlash, setCopyUrlsShellFlash] = useState(false);
   const [copiedLinkFileId, setCopiedLinkFileId] = useState<string | null>(null);
+  // Keep last payload so the Modal can dismiss with visible={false} even when
+  // the parent clears bundleData in the same close handler.
+  const retainedBundleRef = useRef(bundleData);
+  if (bundleData) retainedBundleRef.current = bundleData;
+  const activeBundle = bundleData ?? retainedBundleRef.current;
 
   useEffect(() => {
     if (!isVisible) {
       setOverlayChildFile(null);
-      setBundleShellFullscreen(false);
     }
   }, [isVisible]);
 
   const copyAllLinks = () => {
+    if (!activeBundle) return;
     try {
-      const allUrls = (bundleData.files ?? [])
+      const allUrls = (activeBundle.files ?? [])
         .map((f) => `${API_BASE}/preview/${f.id}`)
         .filter(Boolean)
         .join("\n");
-      const fallback = (bundleData.bundledUrls ?? []).join("\n");
+      const fallback = (activeBundle.bundledUrls ?? []).join("\n");
       const text = allUrls || fallback;
       if (!text.trim()) {
         Alert.alert("Link not ready", "This URL is not available yet. Try again in a moment.");
@@ -581,16 +587,16 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     });
   };
 
-  if (!isVisible || !bundleData) return null;
+  if (!activeBundle) return null;
 
   return (
     // === BundleModal Overlay Container ===
     <Modal
-      visible
-      transparent
-      animationType="none"
+      visible={isVisible}
+      animationType="slide"
+      presentationStyle="fullScreen"
       onRequestClose={onClose}
-      statusBarTranslucent
+      supportedOrientations={["portrait", "landscape"]}
     >
     <View
       className="flex-1"
@@ -629,9 +635,9 @@ export const BundleModal: React.FC<BundleModalProps> = ({
               style={{ flexShrink: 1 }}
             >
               {getDisplayFileNameForUi(
-                bundleData.name,
-                bundleData.type ?? "Link",
-                bundleData.contentType
+                activeBundle.name,
+                activeBundle.type ?? "Link",
+                activeBundle.contentType
               )}
             </Text>
           </View>
@@ -683,30 +689,30 @@ export const BundleModal: React.FC<BundleModalProps> = ({
           <View style={{ marginBottom: 10 }}>
             <CollapsibleFileDetails
               summary={`linq · ${formatLinqCreatedDisplay(
-                bundleData.createdAt,
-                (bundleData as any).date
+                activeBundle.createdAt,
+                (activeBundle as any).date
               )}`}
-              id={bundleData.id}
-              createdAt={bundleData.createdAt}
-              date={(bundleData as any).date}
-              creator={bundleData.creator}
-              dirty={(bundleData as any).dirty}
+              id={activeBundle.id}
+              createdAt={activeBundle.createdAt}
+              date={(activeBundle as any).date}
+              creator={activeBundle.creator}
+              dirty={(activeBundle as any).dirty}
               isOnline={isOnline}
             />
           </View>
 
           {/* === Bundle URL === */}
           {/* Commented out - bundle URLs don't work when opened from mobile app browser */}
-          {/* {bundleData.url && (
+          {/* {activeBundle.url && (
             <View className="mb-4">
               <Text className="text-gray-400 text-sm mb-1">URL:</Text>
-              <TouchableOpacity onPress={() => bundleData.url && openURL(bundleData.url)}>
+              <TouchableOpacity onPress={() => activeBundle.url && openURL(activeBundle.url)}>
                 <Text
                   className="text-blue-400 text-sm underline"
                   numberOfLines={1}
                   ellipsizeMode="middle"
                 >
-                  {bundleData.url}
+                  {activeBundle.url}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -720,7 +726,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
               className="flex-row items-center justify-between mb-1"
             >
               <Text className="text-gray-400 text-sm">
-                Linked URLs ({bundleData.bundledUrls.length}):
+                Linked URLs ({activeBundle.bundledUrls.length}):
               </Text>
               <FontAwesomeIcon
                 icon={isUrlsExpanded ? faChevronUp : faChevronDown}
@@ -730,9 +736,9 @@ export const BundleModal: React.FC<BundleModalProps> = ({
             </TouchableOpacity>
             {isUrlsExpanded && (
               <View>
-            {bundleData.bundledUrls.map((url, index) => {
-              // Try to find the file ID for this URL from bundleData.files
-              const file = bundleData?.files?.find(f => f.url === url);
+            {activeBundle.bundledUrls.map((url, index) => {
+              // Try to find the file ID for this URL from activeBundle.files
+              const file = activeBundle?.files?.find(f => f.url === url);
               const fileId = file?.id;
               return (
                   <TouchableOpacity
@@ -759,24 +765,24 @@ export const BundleModal: React.FC<BundleModalProps> = ({
             <Text className="text-white text-base font-semibold mb-3">
               linqed Files:
             </Text>
-            {!bundleData?.files?.length ? (
+            {!activeBundle?.files?.length ? (
               <View className="mb-3">
-                {bundleData?.isHydratingChildren ? (
+                {activeBundle?.isHydratingChildren ? (
                   <ChildLoadingIndicator />
                 ) : (
                   <PreviewFallbackBanner
                     message={previewFixingMessage(
                       getDisplayFileNameForUi(
-                        bundleData.name,
-                        bundleData.type ?? "Link",
-                        bundleData.contentType
+                        activeBundle.name,
+                        activeBundle.type ?? "Link",
+                        activeBundle.contentType
                       )
                     )}
                   />
                 )}
               </View>
             ) : null}
-            {bundleData?.files?.map((file, fileIndex) => {
+            {activeBundle?.files?.map((file, fileIndex) => {
               const isNested = isNestedBundle(file);
               const nestedBundleData = isNested ? (file as any) : null;
               const isLoadingChild = isChildStillLoading(file);
