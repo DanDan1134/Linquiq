@@ -140,7 +140,14 @@ async function processJob(payload: OutboxPayload): Promise<void> {
 
     case 'upload_blob': {
       const { localId, content, name } = payload;
-      const blob = new Blob([content], { type: 'text/markdown' });
+      // Notes upload as `.txt` (see deriveNoteUploadFileName). Must match
+      // server uploadValidation: .txt → text/plain, .md → text/markdown.
+      // Hardcoding text/markdown caused INVALID_CONTENT_TYPE after MIME hardening.
+      const lower = String(name ?? '').toLowerCase();
+      const blobMime = lower.endsWith('.md')
+        ? 'text/markdown'
+        : 'text/plain';
+      const blob = new Blob([content], { type: blobMime });
       const { serverFileId } = await uploadBlob(blob, name, localId);
       // Same as above: don't store the PUT presigned URL.
       await markFileSynced(localId, serverFileId, undefined);

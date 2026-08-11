@@ -312,10 +312,15 @@ export async function uploadBlob(
   suggestedName: string,
   clientId?: string
 ): Promise<{ key: string; url: string; serverFileId: string }> {
+  // Prefer MIME from the upload filename so .txt notes never send text/markdown
+  // (server upload-helper rejects extension/MIME mismatches).
+  const fromName = mimeFromFileName(suggestedName)
   const contentType =
-    blob.type && blob.type.trim() !== ''
-      ? blob.type
-      : mimeFromFileName(suggestedName)
+    fromName !== 'application/octet-stream'
+      ? fromName
+      : blob.type && blob.type.trim() !== ''
+        ? blob.type
+        : 'text/plain'
   let t = Date.now()
   const { url, key, contentType: signedType, contentLength } = await getPresignedUrl({
     fileName: suggestedName,
