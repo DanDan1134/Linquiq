@@ -11,7 +11,7 @@ export type FileUrlSource = {
     type: string
 }
 
-export type FileUrlResult = { url: string | undefined; data: unknown }
+export type FileUrlResult = { url: string | undefined; data: unknown; children?: FileUrlResult[] }
 
 export const getFileUrl = async (file: FileUrlSource, is_bundle: boolean): Promise<FileUrlResult[] | undefined> => {
     const {userId} = await auth()

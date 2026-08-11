@@ -603,19 +603,19 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     >
       {/* === BundleModal Main Card === */}
       <View
-        className={`bg-background ${bundleShellFullscreen ? "" : "rounded-lg mx-6 w-11/12"}`}
+        className={`bg-background ${bundleShellFullscreen ? "" : "rounded-lg mx-4 w-11/12"}`}
         style={
           bundleShellFullscreen
             ? { flex: 1, width: "100%", maxHeight: "100%" }
-            : { height: "75%", maxHeight: "80%" }
+            : { height: "72%", maxHeight: "76%" }
         }
       >
         {/* === BundleModal Header === */}
         <View
           style={{
-            paddingTop: bundleShellFullscreen ? insets.top + 6 : 10,
-            paddingHorizontal: 20,
-            paddingBottom: 12,
+            paddingTop: bundleShellFullscreen ? insets.top + 4 : 8,
+            paddingHorizontal: 14,
+            paddingBottom: 10,
             borderBottomWidth: 1,
             borderBottomColor: "#4B5563",
           }}
@@ -675,12 +675,12 @@ export const BundleModal: React.FC<BundleModalProps> = ({
 
         {/* === BundleModal Details Body (single scroll container) === */}
         <ScrollView
-          className="p-6"
+          className="p-4"
           style={{ flex: 1 }}
           showsVerticalScrollIndicator={true}
         >
           {/* Top linq metadata — collapsed so the child files start near the top */}
-          <View style={{ marginBottom: 14 }}>
+          <View style={{ marginBottom: 10 }}>
             <CollapsibleFileDetails
               summary={`linq · ${formatLinqCreatedDisplay(
                 bundleData.createdAt,
@@ -755,12 +755,12 @@ export const BundleModal: React.FC<BundleModalProps> = ({
           </View> */}
 
           {/* === Bundled Files Section === */}
-          <View className="border-t border-gray-600 pt-4">
-            <Text className="text-white text-lg font-semibold mb-4">
+          <View className="border-t border-gray-600 pt-3">
+            <Text className="text-white text-base font-semibold mb-3">
               linqed Files:
             </Text>
             {!bundleData?.files?.length ? (
-              <View className="mb-4">
+              <View className="mb-3">
                 {bundleData?.isHydratingChildren ? (
                   <ChildLoadingIndicator />
                 ) : (
@@ -782,9 +782,9 @@ export const BundleModal: React.FC<BundleModalProps> = ({
               const isLoadingChild = isChildStillLoading(file);
               return (
               // === Individual Bundled File Card ===
-              <View key={`file-${file.id}-${fileIndex}`} className="bg-card-bg rounded-lg p-4 mb-3">
+              <View key={`file-${file.id}-${fileIndex}`} className="bg-card-bg rounded-lg p-3 mb-2">
                 {/* === File Header (Type + Copy Link) === */}
-                <View className="flex-row items-center justify-between mb-3">
+                <View className="flex-row items-center justify-between mb-2">
                   <View
                     className="flex-row items-center flex-1 mr-2"
                     style={{ minWidth: 0 }}
@@ -810,7 +810,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                   </View>
                 </View>
 
-                <View style={{ marginBottom: 14 }}>
+                <View style={{ marginBottom: 10 }}>
                   <CollapsibleFileDetails
                     summary={`${isNested ? "linq" : String(file.type ?? "File")} · ${formatLinqCreatedDisplay(
                       file.createdAt,
@@ -830,16 +830,16 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                   />
                 </View>
 
-                {/* === Nested Bundle Contents (Displayed Inline - Compact) === */}
+                {/* === Nested Linq — minimal: name + Open only, no contained-file listing === */}
                 {isNested && nestedBundleData ? (
                   <View className="mb-3 bg-gray-700 rounded-lg p-2 border border-gray-600">
-                    {/* Nested Bundle Header - Compact */}
-                    <View className="flex-row items-center justify-between mb-2">
+                    <View className="flex-row items-center justify-between">
                       <View className="flex-row items-center flex-1">
                         <View className="w-1.5 h-1.5 rounded-full bg-button-outline mr-1.5" />
                         <Text className="text-white text-xs font-semibold" numberOfLines={1}>
                           {(nestedBundleData.name === "Bundle" || nestedBundleData.name === "bundle" || nestedBundleData.name === "Linq") ? "linq" : (nestedBundleData.name || "linq")}
                         </Text>
+                        {isLoadingChild ? <View style={styles.pendingDot} /> : null}
                       </View>
                       <TouchableOpacity
                         onPress={() => {
@@ -848,112 +848,11 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                           }
                         }}
                         activeOpacity={0.7}
-                        className="ml-2 bg-button-outline rounded-md px-4 min-h-[52px] items-center justify-center"
+                        className="ml-2 bg-button-outline rounded-md px-3 min-h-[52px] items-center justify-center"
                       >
                         <Text className="text-black text-sm font-semibold">Open →</Text>
                       </TouchableOpacity>
                     </View>
-                    
-                    {/* Display nested bundle's files inline - Compact */}
-                    {nestedBundleData.files && nestedBundleData.files.length > 0 ? (
-                      <View className="mt-1">
-                        {nestedBundleData.files.slice(0, 5).map((nestedFile: any, nestedIndex: number) => (
-                          <View
-                            key={`nested-${file.id}-${nestedFile.id || nestedIndex}-${nestedIndex}`}
-                            className="bg-gray-800 rounded p-1.5 mb-1 border border-gray-600"
-                          >
-                            <View className="flex-row items-center">
-                              <View
-                                className={`w-1 h-1 rounded-full ${getTypeColor((nestedFile.type === "Link" || nestedFile.type === "Bundle" || nestedFile.type === "bundle" || String(nestedFile.type ?? "").toLowerCase() === "linq") ? "button-border-color" : (nestedFile.typeColor || "button-border-color"))} mr-1.5`}
-                              />
-                              <Text className="text-gray-300 text-xs flex-1" numberOfLines={1}>
-                                {getDisplayFileNameForUi(
-                                  (nestedFile.name?.trim() ||
-                                    (nestedFile.type === "Bundle" ||
-                                    nestedFile.type === "bundle" ||
-                                    String(nestedFile.type ?? "").toLowerCase() === "linq"
-                                      ? "linq"
-                                      : nestedFile.type) ||
-                                    "File") as string,
-                                  nestedFile.type,
-                                  nestedFile.contentType
-                                )}
-                              </Text>
-                            </View>
-                            {isTextFile(nestedFile as any) ? (
-                              stripHtmlPreserveNewlines(
-                                String(nestedFile.content ?? "")
-                              ).trim() ? (
-                                <Text className="text-gray-400 text-xs mt-0.5" numberOfLines={2}>
-                                  {(() => {
-                                    const t = stripHtmlPreserveNewlines(
-                                      typeof nestedFile.content === "string"
-                                        ? nestedFile.content
-                                        : ""
-                                    );
-                                    return t
-                                      ? t.substring(0, 60) + (t.length > 60 ? "..." : "")
-                                      : "";
-                                  })()}
-                                </Text>
-                              ) : (
-                                <View className="mt-1">
-                                  <PreviewFallbackBanner
-                                    message={previewFixingMessage(
-                                      getDisplayFileNameForUi(
-                                        nestedFile.name,
-                                        nestedFile.type,
-                                        nestedFile.contentType
-                                      )
-                                    )}
-                                  />
-                                </View>
-                              )
-                            ) : null}
-                          </View>
-                        ))}
-                        {nestedBundleData.files.length > 5 && (
-                          <Text className="text-gray-400 text-xs mt-1 text-center">
-                            +{nestedBundleData.files.length - 5} more file(s)
-                          </Text>
-                        )}
-                      </View>
-                    ) : stripHtmlPreserveNewlines(
-                        String(nestedBundleData.content ?? "")
-                      ).trim() ? (
-                      <Text className="text-gray-400 text-xs">
-                        {stripHtmlPreserveNewlines(nestedBundleData.content)}
-                      </Text>
-                    ) : isLoadingChild ? (
-                      <ChildLoadingIndicator />
-                    ) : (
-                      <PreviewFallbackBanner
-                        message={previewFixingMessage(
-                          getDisplayFileNameForUi(
-                            nestedBundleData.name,
-                            nestedBundleData.type,
-                            nestedBundleData.contentType
-                          )
-                        )}
-                      />
-                    )}
-                    
-                    {/* Extract Contents Button */}
-                    {onExtractContents && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (onExtractContents) {
-                            onExtractContents(nestedBundleData, file);
-                          }
-                        }}
-                        className="mt-3 bg-button-outline rounded-md px-4 min-h-[52px] items-center justify-center"
-                        activeOpacity={0.7}
-                      >
-                        <Text className="text-black font-semibold text-sm">
-                          Extract Contents
-                        </Text>
-                      </TouchableOpacity>
-                    )}
                   </View>
                 ) : null}
 
@@ -1005,7 +904,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                     {getPreviewUri(file) ? (
                       <Video
                         source={{ uri: getPreviewUri(file) }}
-                        style={{ width: "100%", height: 220, borderRadius: 12 }}
+                        style={{ width: "100%", height: 190, borderRadius: 12 }}
                         resizeMode={ResizeMode.CONTAIN}
                         useNativeControls
                       />
@@ -1092,20 +991,21 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                           className="mb-3"
                           style={{
                             width: "100%",
-                            minHeight: 150,
-                            borderRadius: 12,
+                            minHeight: 120,
+                            borderRadius: 10,
                             backgroundColor: "#111827",
                             alignItems: "center",
                             justifyContent: "center",
-                            padding: 16,
+                            padding: 14,
                           }}
                         >
                           <Text
                             style={{
                               color: "#F9FAFB",
                               textAlign: "center",
-                              lineHeight: 20,
-                              marginBottom: 12,
+                              lineHeight: 19,
+                              marginBottom: 10,
+                              fontSize: 13,
                             }}
                           >
                             {showAndroidOfflineHelperCopy
@@ -1136,7 +1036,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                         className="mb-3"
                         style={{
                           width: "100%",
-                          height: 420,
+                          height: 340,
                           borderRadius: 12,
                           overflow: "hidden",
                           backgroundColor: "#111",

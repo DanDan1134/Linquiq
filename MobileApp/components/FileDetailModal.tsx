@@ -567,12 +567,12 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
 
   const winH = Dimensions.get("window").height;
   const largePreview = contentFullscreen;
-  // Metadata now collapses, so previews can claim the space it used to occupy.
-  const videoPreviewHeight = largePreview ? Math.round(winH * 0.5) : 260;
-  const pdfPreviewHeight = largePreview ? Math.round(winH * 0.66) : 460;
+  // Compact (non-fullscreen) previews stay small so the sheet fits neatly on screen.
+  const videoPreviewHeight = largePreview ? Math.round(winH * 0.5) : 200;
+  const pdfPreviewHeight = largePreview ? Math.round(winH * 0.66) : 360;
   const imagePreviewHeight = largePreview
     ? Math.min(Math.round(winH * 0.56), 620)
-    : Math.round(winH * 0.34);
+    : Math.round(winH * 0.26);
 
   const canOpenDocument =
     Boolean(localUri) ||
@@ -650,20 +650,20 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       ]}
     >
       <View
-        className={`bg-background ${contentFullscreen ? "" : "rounded-lg mx-6 w-11/12"}`}
+        className={`bg-background ${contentFullscreen ? "" : "rounded-lg mx-4 w-11/12"}`}
         style={
           contentFullscreen
             ? { flex: 1, width: "100%", maxHeight: "100%" }
-            : { maxHeight: "80%" }
+            : { maxHeight: "72%" }
         }
       >
         {/* Header: title, one action, nothing else */}
         <View
           className="flex-row items-center border-b border-gray-600"
           style={{
-            paddingTop: contentFullscreen ? Math.max(insets.top, 8) + 6 : 14,
-            paddingBottom: 12,
-            paddingHorizontal: 12,
+            paddingTop: contentFullscreen ? Math.max(insets.top, 8) + 4 : 10,
+            paddingBottom: 8,
+            paddingHorizontal: 10,
           }}
         >
           {contentFullscreen ? (
@@ -715,10 +715,10 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
           style={contentFullscreen ? { flex: 1 } : undefined}
           contentContainerStyle={styles.bodyContent}
         >
-          <View style={{ marginBottom: 14 }}>{metadataSection}</View>
+          <View style={{ marginBottom: 10 }}>{metadataSection}</View>
 
           {(isTextPreview || isMarkdownPreview) && !loadingText && (
-            <View className="mb-4">
+            <View className="mb-3">
               {textContent != null && String(textContent).trim() !== "" ? (
                 <TextFileViewer text={textContent} />
               ) : (
@@ -730,13 +730,13 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
           )}
 
           {offlineImageOrPdfBlocked ? (
-            <View className="mb-4">
+            <View className="mb-3">
               <OfflinePreviewNotice />
             </View>
           ) : null}
 
           {!offlineImageOrPdfBlocked && displayMediaUri ? (
-            <View className="mb-4">
+            <View className="mb-3">
               {isImagePreview &&
                 (imagePreviewStatus === "error" ? (
                   <PreviewFallbackBanner
@@ -782,13 +782,13 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                 needsAndroidPresignedPdf &&
                 androidPdfResolvedUri === null && (
                   <View
-                    className="mb-4"
+                    className="mb-3"
                     style={[styles.mediaFrame, { height: pdfPreviewHeight }]}
                   />
                 )}
 
               {isPdfPreview && Platform.OS === "android" && localUri && !isOnline && (
-                <View className="mb-4" style={styles.offlinePdfPanel}>
+                <View className="mb-3" style={styles.offlinePdfPanel}>
                   <Text style={styles.offlinePdfText}>
                     PDF is saved offline. Android opens local PDFs through a PDF app.
                   </Text>
@@ -927,7 +927,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
             !(isTextPreview || isMarkdownPreview) &&
             (String(previewUrl ?? "").trim() ||
               String(selectedFile?.url ?? "").trim()) ? (
-            <View className="mb-4">
+            <View className="mb-3">
               <PreviewFallbackBanner
                 message={previewFixingMessage(displayFileName)}
               />
@@ -963,15 +963,15 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
 
 const styles = StyleSheet.create({
   headerButton: {
-    minWidth: 56,
-    minHeight: 56,
+    minWidth: 48,
+    minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
   },
   bodyContent: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 24,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 16,
   },
   mediaFrame: {
     width: "100%",
@@ -1022,18 +1022,19 @@ const styles = StyleSheet.create({
   },
   offlinePdfPanel: {
     width: "100%",
-    minHeight: 170,
-    borderRadius: 12,
+    minHeight: 130,
+    borderRadius: 10,
     backgroundColor: "#111827",
     alignItems: "center",
     justifyContent: "center",
-    padding: 18,
+    padding: 14,
   },
   offlinePdfText: {
     color: "#F9FAFB",
     textAlign: "center",
-    lineHeight: 21,
-    marginBottom: 14,
+    lineHeight: 19,
+    marginBottom: 10,
+    fontSize: 13,
   },
   audioBlock: {
     marginTop: 4,
