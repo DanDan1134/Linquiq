@@ -1130,8 +1130,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                         </View>
                       );
                     }
-                    // Prevent raw PDF bytes ("%PDF-1.x ...") from rendering as text.
-                    // Load the file URL directly — Google Drive's viewer blanks on S3 signed URLs.
+                    // Direct PDF URI only — no Google viewer, no JS, no file:// access.
                     return (
                       <View
                         className="mb-3"
@@ -1147,7 +1146,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                           source={{
                             uri: inlinePdfUri,
                           }}
-                          originWhitelist={["*"]}
+                          originWhitelist={["https://*", "http://*", "file://*"]}
                           onLoadStart={() => {
                             if (pdfTimeoutRef.current[file.id]) {
                               clearTimeout(pdfTimeoutRef.current[file.id]);
@@ -1176,8 +1175,8 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                               [file.id]: e?.nativeEvent?.description ?? "Failed to load PDF",
                             }));
                           }}
-                          javaScriptEnabled
-                          allowFileAccess
+                          javaScriptEnabled={false}
+                          allowFileAccess={false}
                           scalesPageToFit
                         />
                       </View>

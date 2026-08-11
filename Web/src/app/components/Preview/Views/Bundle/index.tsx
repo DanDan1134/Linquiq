@@ -1,15 +1,14 @@
 "use client"
 
-import type { CSSProperties } from "react"
 import type { entryTable } from "@/db/schema";
 import type { FileUrlResult } from "@/lib/server/getFileUrl";
 import { useFileStore } from "@/app/components/State Manager/appManager";
 import { getFileType, getDisplayFileName } from "@/lib/client/getFileType";
 import { FileType } from "@/app/components/TypeTags";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { getViewerDetails } from "docviewhelper";
+import { useEffect, useRef, useState } from "react";
 import { Copy, Check } from "lucide-react";
 import { sanitizeHtml } from "@/lib/client/sanitizeHtml";
+import { PrivateDocumentPreview } from "@/app/components/Preview/PrivateDocumentPreview";
 
 const formatCreatedAt = (value: unknown) => {
     if (!value) return "Unknown"
@@ -46,33 +45,18 @@ const NoteView = ({fileUrl}: {fileUrl: string}) => {
 
 
 // renders inline content for a single linked file based on its type
-const documentIframeStyle: CSSProperties = {
-    width: "100%",
-    aspectRatio: "1/1.1",
-    borderRadius: "var(--border-rad)",
-    objectFit: "contain",
-    border: "none",
-}
-
 const InlineContent = ({ file, url }: { file: EntryRow; url?: string }) => {
     const videoRef = useRef<HTMLVideoElement>(null)
     const safeUrl = typeof url === "string" && url.trim() !== "" ? url : undefined
-    const googleViewerSrc = useMemo(() => {
-        if (!safeUrl) return null
-        const { url: viewerUrl, externalViewer } = getViewerDetails(safeUrl, "google", "hl=Nl", "")
-        return externalViewer && viewerUrl.trim() !== "" ? viewerUrl : null
-    }, [safeUrl])
 
     switch (getFileType(file.type)) {
         case "Document":
-            if (!safeUrl || !googleViewerSrc) {
-                return <div style={{ fontSize: "0.8rem", opacity: 0.6 }}>Loading...</div>
-            }
             return (
-                <iframe
-                    title="Document preview"
-                    src={googleViewerSrc}
-                    style={documentIframeStyle}
+                <PrivateDocumentPreview
+                    fileId={file.id}
+                    fileType={file.type}
+                    fileName={file.name}
+                    downloadUrl={safeUrl}
                 />
             )
         case "Image":

@@ -1,16 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { s3Client, bucketName } from "@/lib/server/s3/module.s3client";
-import { HeadObjectCommand } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  S3ServiceException,
+} from "@aws-sdk/client-s3";
 import { auth } from "@clerk/nextjs/server";
 import { db } from "@/db";
-import { S3ServiceException } from "@aws-sdk/client-s3";
 import { createFile } from "@/lib/server/createFile";
 import type { FileData } from "@/lib/Types/Types";
 import {
+  getFileExtension,
   isAllowedFileName,
   isAllowedFileSize,
+  isContentTypeAllowedForFileName,
+  isTextSearchableExtension,
   isValidUploadCount,
+  matchesMagicBytes,
   MAX_UPLOAD_COUNT,
+  SEARCH_EXTRACT_MAX_CHARS,
 } from "@/lib/server/uploadValidation";
 
 interface RequestBody {
@@ -30,26 +39,100 @@ function parseClientId(raw: unknown): string | undefined {
 }
 
 type HeadResult =
-  | { ok: true; contentLength: number }
-  | { ok: false; reason: "missing" | "oversized" | "error" };
+  | { ok: true; contentLength: number; contentType: string | null }
+  | {
+      ok: false;
+      reason: "missing" | "oversized" | "type_mismatch" | "magic_mismatch" | "error";
+    };
 
-const headObjectMeta = async (profileId: string, key: string): Promise<HeadResult> => {
+const s3Key = (profileId: string, key: string) => `${profileId}/${key}`;
+
+const deleteObjectQuietly = async (profileId: string, key: string) => {
+  try {
+    await s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: bucketName,
+        Key: s3Key(profileId, key),
+      })
+    );
+  } catch (err) {
+    console.warn("Failed to delete orphan S3 object", key, err);
+  }
+};
+
+const readObjectHeaderBytes = async (
+  profileId: string,
+  key: string,
+  maxBytes = 16
+): Promise<Uint8Array | null> => {
+  try {
+    const result = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: bucketName,
+        Key: s3Key(profileId, key),
+        Range: `bytes=0-${Math.max(0, maxBytes - 1)}`,
+      })
+    );
+    if (!result.Body) return null;
+    const buf = Buffer.from(await result.Body.transformToByteArray());
+    return new Uint8Array(buf);
+  } catch {
+    return null;
+  }
+};
+
+const readTextExtract = async (
+  profileId: string,
+  key: string
+): Promise<string | null> => {
+  try {
+    const result = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: bucketName,
+        Key: s3Key(profileId, key),
+        Range: `bytes=0-${SEARCH_EXTRACT_MAX_CHARS - 1}`,
+      })
+    );
+    if (!result.Body) return null;
+    const text = await result.Body.transformToString("utf-8");
+    return text.replace(/<[^>]*>/g, " ").slice(0, SEARCH_EXTRACT_MAX_CHARS);
+  } catch {
+    return null;
+  }
+};
+
+const headObjectMeta = async (
+  profileId: string,
+  key: string,
+  fileName: string
+): Promise<HeadResult> => {
   if (typeof key !== "string") {
     throw new TypeError("All values within keys must be strings");
   }
 
   const command = new HeadObjectCommand({
     Bucket: bucketName,
-    Key: `${profileId}/${key}`,
+    Key: s3Key(profileId, key),
   });
 
   try {
     const result = await s3Client.send(command);
     const contentLength = result.ContentLength ?? 0;
+    const contentType = result.ContentType ?? null;
+
     if (!isAllowedFileSize(contentLength)) {
       return { ok: false, reason: "oversized" };
     }
-    return { ok: true, contentLength };
+    if (!isContentTypeAllowedForFileName(fileName, contentType)) {
+      return { ok: false, reason: "type_mismatch" };
+    }
+
+    const header = await readObjectHeaderBytes(profileId, key);
+    if (!matchesMagicBytes(fileName, header)) {
+      return { ok: false, reason: "magic_mismatch" };
+    }
+
+    return { ok: true, contentLength, contentType };
   } catch (err: unknown) {
     if (!(err instanceof S3ServiceException)) {
       return { ok: false, reason: "missing" };
@@ -68,8 +151,12 @@ const headObjectMeta = async (profileId: string, key: string): Promise<HeadResul
 };
 
 export async function POST(request: NextRequest) {
+  const orphanKeys: string[] = [];
+  let userIdForCleanup: string | null = null;
+
   try {
     const { userId } = await auth();
+    userIdForCleanup = userId;
 
     if (!userId) {
       return NextResponse.json(
@@ -85,16 +172,20 @@ export async function POST(request: NextRequest) {
     const body: RequestBody = await request.json();
     const { keys, fileNames, clientIds } = body;
 
+    if (!Array.isArray(keys) || !Array.isArray(fileNames)) {
+      throw new Error("keys and fileNames must be arrays!");
+    }
+
+    if (keys.length !== fileNames.length) {
+      throw new Error("keys and fileNames must have the same length!");
+    }
+
+    if (!isValidUploadCount(keys.length)) {
+      throw new Error(`Batch size must be between 1 and ${MAX_UPLOAD_COUNT}`);
+    }
+
     const result = await db.transaction(async () => {
       const sentFiles: FileData[] = [];
-
-      if (!Array.isArray(keys) || !Array.isArray(fileNames)) {
-        throw new Error("keys and fileNames must be arrays!");
-      }
-
-      if (keys.length !== fileNames.length) {
-        throw new Error("keys and fileNames must have the same length!");
-      }
 
       if (
         clientIds !== undefined &&
@@ -103,32 +194,47 @@ export async function POST(request: NextRequest) {
         throw new Error("clientIds must be an array matching keys length!");
       }
 
-      if (!isValidUploadCount(keys.length)) {
-        throw new Error(`Batch size must be between 1 and ${MAX_UPLOAD_COUNT}`);
-      }
-
       for (let index = 0; index < keys.length; index++) {
         const fileName = fileNames[index];
+        const key = keys[index];
         if (typeof fileName !== "string") {
           throw new Error("All values within fileNames must be strings!");
         }
         if (!isAllowedFileName(fileName)) {
+          orphanKeys.push(key);
           throw new Error("INVALID_FILE_NAME");
         }
 
-        const head = await headObjectMeta(userId, keys[index]);
+        const head = await headObjectMeta(userId, key, fileName);
         if (head.ok) {
           const clientId = parseClientId(clientIds?.[index]);
+          const ext = getFileExtension(fileName);
+          let description: string | undefined;
+          if (isTextSearchableExtension(ext)) {
+            const extract = await readTextExtract(userId, key);
+            if (extract) description = extract;
+          }
+
           sentFiles.push({
             owner_id: userId,
             creator_id: userId,
             name: fileName,
-            type: fileName.split(".").pop() || "unknown",
-            file_id: keys[index],
+            type: ext || "unknown",
+            file_id: key,
             ...(clientId ? { id: clientId } : {}),
+            ...(description ? { description } : {}),
           });
-        } else if (head.reason === "oversized") {
-          throw new Error("FILE_TOO_LARGE");
+        } else {
+          orphanKeys.push(key);
+          if (head.reason === "oversized") {
+            throw new Error("FILE_TOO_LARGE");
+          }
+          if (head.reason === "type_mismatch") {
+            throw new Error("INVALID_CONTENT_TYPE");
+          }
+          if (head.reason === "magic_mismatch") {
+            throw new Error("INVALID_FILE_CONTENT");
+          }
         }
       }
 
@@ -165,8 +271,21 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (err: unknown) {
+    if (userIdForCleanup && orphanKeys.length > 0) {
+      await Promise.all(
+        orphanKeys.map((key) => deleteObjectQuietly(userIdForCleanup!, key))
+      );
+    }
+
     if (!(err instanceof Error)) {
-      return;
+      return NextResponse.json(
+        {
+          okay: false,
+          error: "Internal server error",
+          message: "The server encountered an unexpected condition",
+        },
+        { status: 500 }
+      );
     }
 
     if (
@@ -174,7 +293,10 @@ export async function POST(request: NextRequest) {
       err.message === "keys and fileNames must have the same length!" ||
       err.message.startsWith("Batch size must be") ||
       err.message === "All values within fileNames must be strings!" ||
-      err.message === "INVALID_FILE_NAME"
+      err.message === "clientIds must be an array matching keys length!" ||
+      err.message === "INVALID_FILE_NAME" ||
+      err.message === "INVALID_CONTENT_TYPE" ||
+      err.message === "INVALID_FILE_CONTENT"
     ) {
       return NextResponse.json(
         {

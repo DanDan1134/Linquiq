@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react";
-import { DocumentViewer } from "react-documents";
 import { getFileType } from "@/lib/client/getFileType";
 import { sanitizeHtml } from "@/lib/client/sanitizeHtml";
+import { PrivateDocumentPreview } from "@/app/components/Preview/PrivateDocumentPreview";
 
 const NoteView = ({ fileUrl }: { fileUrl: string }) => {
     const [fileSrc, setFileSrc] = useState<string | undefined>(undefined);
@@ -26,27 +26,32 @@ const NoteView = ({ fileUrl }: { fileUrl: string }) => {
     );
 };
 
-export const SingleFilePreview = ({ fileUrl, fileType }: { fileUrl?: string; fileType: string }) => {
+export const SingleFilePreview = ({
+    fileUrl,
+    fileType,
+    fileId,
+    fileName,
+}: {
+    fileUrl?: string;
+    fileType: string;
+    fileId?: string;
+    fileName?: string;
+}) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const displayType = getFileType(fileType);
 
-    if (!fileUrl) {
+    if (!fileUrl && displayType !== "Document") {
         return <div>File not found.</div>;
     }
 
     switch (displayType) {
         case "Document":
             return (
-                <DocumentViewer
-                    queryParams="hl=Nl"
-                    url={fileUrl}
-                    style={{
-                        width: "100%",
-                        aspectRatio: "1/1.1",
-                        borderRadius: "var(--border-rad)",
-                        objectFit: "contain",
-                        objectPosition: "center",
-                    }}
+                <PrivateDocumentPreview
+                    fileId={fileId}
+                    fileType={fileType}
+                    fileName={fileName}
+                    downloadUrl={fileUrl}
                 />
             );
         case "Image":
@@ -79,9 +84,8 @@ export const SingleFilePreview = ({ fileUrl, fileType }: { fileUrl?: string; fil
                 />
             );
         case "Note":
-            return <NoteView fileUrl={fileUrl} />;
+            return fileUrl ? <NoteView fileUrl={fileUrl} /> : <div>File not found.</div>;
         default:
             return <div>Unsupported preview type.</div>;
     }
 };
-

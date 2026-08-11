@@ -802,23 +802,22 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                 </View>
               )}
 
-              {/* PDF inline viewer — load the file URL directly.
-                  Google Drive's viewer often blanks on S3 signed URLs. */}
+              {/* PDF inline viewer — direct URI only (no Google viewer / no JS). */}
               {isPdfPreview && pdfUriForWebView && (() => {
                 const sourceUri = pdfUriForWebView;
                 return (
                 <View style={[styles.mediaFrame, { height: pdfPreviewHeight }]}>
                   <WebView
                     source={{ uri: sourceUri }}
-                    originWhitelist={["*"]}
+                    originWhitelist={["https://*", "http://*", "file://*"]}
                     onLoadStart={() => setPdfError(null)}
                     onError={(e) =>
                       setPdfError(
                         e?.nativeEvent?.description ?? "Failed to load PDF"
                       )
                     }
-                    javaScriptEnabled
-                    allowFileAccess
+                    javaScriptEnabled={false}
+                    allowFileAccess={false}
                     scalesPageToFit
                     {...(Platform.OS === "android"
                       ? { mixedContentMode: "always" as const }

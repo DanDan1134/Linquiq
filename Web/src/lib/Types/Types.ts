@@ -9,4 +9,6 @@ export interface FileData {
     creator_email? : string;
     /** Optional client-generated UUID so offline preview URLs match after sync. */
     id?: string;
+    /** Optional searchable text extract for notes/txt/md. */
+    description?: string;
 }

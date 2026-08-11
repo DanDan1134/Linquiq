@@ -33,6 +33,10 @@ export const createFile = async (
       row.id = clientId;
     }
 
+    if (file.description != null && String(file.description).trim() !== "") {
+      row.description = String(file.description).slice(0, 64 * 1024);
+    }
+
     sentFiles.push(row);
   }
 

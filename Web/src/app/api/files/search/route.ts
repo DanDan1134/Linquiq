@@ -3,11 +3,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { eq } from "drizzle-orm"
 import { db } from "@/db"
 import { entryTable, linkTable } from "@/db/schema"
-import { genPresignedUrl } from "@/lib/server/s3/module.genPresignedUrl"
-
+import { s3Client, bucketName } from "@/lib/server/s3/module.s3client"
+import { GetObjectCommand } from "@aws-sdk/client-s3"
+import {
+  MAX_SEARCH_QUERY_CHARS,
+  SEARCH_EXTRACT_MAX_CHARS,
+} from "@/lib/server/uploadValidation"
 
 // text-searchable file extensions
 const TEXT_TYPES = ["txt", "text", "md"]
+const MAX_CONCURRENT_S3_READS = 4
 
 // strips HTML tags from content
 const stripHtml = (html: string) => html.replace(/<[^>]*>/g, " ")
@@ -26,19 +31,48 @@ const getSnippet = (content: string, query: string): string | null => {
     return prefix + content.slice(start, end) + suffix
 }
 
-// fetches text content from S3 via presigned URL
-const fetchFileText = async (userId: string, fileKey: string): Promise<string | null> => {
+/** Prefer DB search extract; otherwise read at most SEARCH_EXTRACT_MAX_CHARS from S3. */
+const fetchFileText = async (
+    userId: string,
+    fileKey: string,
+    description: string | null | undefined
+): Promise<string | null> => {
+    if (description && String(description).trim() !== "") {
+        return stripHtml(String(description)).slice(0, SEARCH_EXTRACT_MAX_CHARS)
+    }
     try {
-        const url = await genPresignedUrl({ profile_id: userId, key: fileKey, method: "GET", expirationInSec: 60 })
-        const res = await fetch(url)
-        if (!res.ok) return null
-        const text = await res.text()
-        return stripHtml(text)
+        const result = await s3Client.send(
+            new GetObjectCommand({
+                Bucket: bucketName,
+                Key: `${userId}/${fileKey}`,
+                Range: `bytes=0-${SEARCH_EXTRACT_MAX_CHARS - 1}`,
+            })
+        )
+        if (!result.Body) return null
+        const text = await result.Body.transformToString("utf-8")
+        return stripHtml(text).slice(0, SEARCH_EXTRACT_MAX_CHARS)
     } catch {
         return null
     }
 }
 
+/** Simple concurrency pool for S3 reads. */
+async function mapPool<T, R>(
+    items: T[],
+    concurrency: number,
+    fn: (item: T) => Promise<R>
+): Promise<R[]> {
+    const results: R[] = new Array(items.length)
+    let next = 0
+    const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+        while (next < items.length) {
+            const i = next++
+            results[i] = await fn(items[i])
+        }
+    })
+    await Promise.all(workers)
+    return results
+}
 
 export async function GET(request: NextRequest) {
     const { userId } = await auth()
@@ -52,6 +86,15 @@ export async function GET(request: NextRequest) {
 
     if (!q || q.length === 0) {
         return NextResponse.json({ message: "Missing search query" }, { status: 400 })
+    }
+
+    if (q.length > MAX_SEARCH_QUERY_CHARS) {
+        return NextResponse.json(
+            {
+                message: `Search query must be at most ${MAX_SEARCH_QUERY_CHARS} characters`,
+            },
+            { status: 400 }
+        )
     }
 
     const queryLower = q.toLowerCase()
@@ -71,6 +114,14 @@ export async function GET(request: NextRequest) {
     const results: SearchResult[] = []
     const matchedIds = new Set<string>()
 
+    // Collect text files that need content search (after name miss)
+    type TextJob = {
+        file: typeof allFiles[0]
+        kind: "self" | "bundle"
+        child?: typeof allFiles[0]
+    }
+    const textJobs: TextJob[] = []
+
     for (const file of allFiles) {
         // 1) check file name
         if (file.name.toLowerCase().includes(queryLower)) {
@@ -79,20 +130,13 @@ export async function GET(request: NextRequest) {
             continue
         }
 
-        // 2) check file content (text files only)
+        // 2) queue text content check
         if (TEXT_TYPES.includes(file.type) && file.file_id) {
-            const text = await fetchFileText(userId, file.file_id)
-            if (text) {
-                const snippet = getSnippet(text, q)
-                if (snippet) {
-                    results.push({ file, matchedIn: "content", snippet })
-                    matchedIds.add(file.id)
-                    continue
-                }
-            }
+            textJobs.push({ file, kind: "self" })
+            continue
         }
 
-        // 3) check bundle linked files
+        // 3) check bundle linked files (names first; queue text)
         if (file.type.toLowerCase() === "bundle") {
             const links = await db
                 .select()
@@ -100,34 +144,66 @@ export async function GET(request: NextRequest) {
                 .where(eq(linkTable.from_id, file.id))
                 .innerJoin(entryTable, eq(linkTable.to_id, entryTable.id))
 
+            let nameHit = false
             for (const link of links) {
                 const child = link.entries
-
-                // check child name
                 if (child.name.toLowerCase().includes(queryLower)) {
-                    if (!matchedIds.has(file.id)) {
-                        results.push({ file, matchedIn: "linked-content", snippet: child.name, matchedChildName: child.name })
-                        matchedIds.add(file.id)
-                    }
+                    results.push({
+                        file,
+                        matchedIn: "linked-content",
+                        snippet: child.name,
+                        matchedChildName: child.name,
+                    })
+                    matchedIds.add(file.id)
+                    nameHit = true
                     break
                 }
+            }
+            if (nameHit) continue
 
-                // check child text content
+            for (const link of links) {
+                const child = link.entries
                 if (TEXT_TYPES.includes(child.type) && child.file_id) {
-                    const text = await fetchFileText(userId, child.file_id)
-                    if (text) {
-                        const snippet = getSnippet(text, q)
-                        if (snippet) {
-                            if (!matchedIds.has(file.id)) {
-                                results.push({ file, matchedIn: "linked-content", snippet, matchedChildName: child.name })
-                                matchedIds.add(file.id)
-                            }
-                            break
-                        }
-                    }
+                    textJobs.push({ file, kind: "bundle", child })
                 }
             }
         }
+    }
+
+    // Cap concurrent S3 reads; prefer description extracts inside fetchFileText.
+    const textHits = await mapPool(textJobs, MAX_CONCURRENT_S3_READS, async (job) => {
+        if (matchedIds.has(job.file.id)) return null
+        if (job.kind === "self") {
+            if (!job.file.file_id) return null
+            const text = await fetchFileText(userId, job.file.file_id, job.file.description)
+            if (!text) return null
+            const snippet = getSnippet(text, q)
+            if (!snippet) return null
+            return {
+                file: job.file,
+                matchedIn: "content" as const,
+                snippet,
+            }
+        }
+        const child = job.child
+        if (!child?.file_id) return null
+        const text = await fetchFileText(userId, child.file_id, child.description)
+        if (!text) return null
+        const snippet = getSnippet(text, q)
+        if (!snippet) return null
+        return {
+            file: job.file,
+            matchedIn: "linked-content" as const,
+            snippet,
+            matchedChildName: child.name,
+        }
+    })
+
+    for (const hit of textHits) {
+        if (!hit) continue
+        if (matchedIds.has(hit.file.id)) continue
+        results.push(hit)
+        matchedIds.add(hit.file.id)
     }
 
     return NextResponse.json({ data: results }, { status: 200 })
