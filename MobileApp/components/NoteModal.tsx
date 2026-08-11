@@ -14,7 +14,6 @@ import {
   TextInput,
   TouchableOpacity,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Modal,
   Pressable,
@@ -22,6 +21,7 @@ import {
   Animated,
   Easing,
   type TextInput as RNTextInput,
+  type KeyboardEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
@@ -40,6 +40,11 @@ const MIN_INPUT_HEIGHT = 22;
 /** Cap the field at roughly 7-8 lines — past this it scrolls internally instead of pushing the whole bar (and screen) taller. */
 const MAX_INPUT_HEIGHT = 160;
 
+const OPEN_MS = 100;
+const CLOSE_MS = 80;
+const RISE_PX = 8;
+const GAP_ABOVE_KEYBOARD = 8;
+
 export const NoteModal: React.FC<NoteModalProps> = ({
   isVisible,
   noteText,
@@ -48,59 +53,58 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   onSave,
 }) => {
   const insets = useSafeAreaInsets();
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  const barOpacity = useRef(new Animated.Value(0)).current;
-  const barRise = useRef(new Animated.Value(12)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const barOpacity = useRef(new Animated.Value(1)).current;
+  const barRise = useRef(new Animated.Value(0)).current;
+  const backdropOpacity = useRef(new Animated.Value(1)).current;
   const closingRef = useRef(false);
   const inputRef = useRef<RNTextInput>(null);
 
+  // Lift the bar with the keyboard height. KeyboardAvoidingView inside a
+  // transparent Modal is unreliable on iOS — the field ends up under the keyboard.
   useEffect(() => {
+    if (!isVisible) {
+      setKeyboardHeight(0);
+      return;
+    }
+
+    const onShow = (e: KeyboardEvent) => {
+      setKeyboardHeight(e.endCoordinates?.height ?? 0);
+    };
+    const onHide = () => setKeyboardHeight(0);
+
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+    const showSub = Keyboard.addListener(showEvent, onShow);
+    const hideSub = Keyboard.addListener(hideEvent, onHide);
     return () => {
       showSub.remove();
       hideSub.remove();
     };
-  }, []);
+  }, [isVisible]);
 
   useEffect(() => {
     if (!isVisible) {
-      barOpacity.setValue(0);
-      barRise.setValue(12);
-      backdropOpacity.setValue(0);
       closingRef.current = false;
+      barOpacity.setValue(1);
+      barRise.setValue(0);
+      backdropOpacity.setValue(1);
       return;
     }
+
     closingRef.current = false;
-    // Focus right away — the bar's own motion is a subtle fade/12px rise now,
-    // not a big slide, so it no longer races visibly with the keyboard. Waiting
-    // for the animation to finish just made the field feel unresponsive to taps.
-    inputRef.current?.focus();
-    Animated.parallel([
-      Animated.timing(backdropOpacity, {
-        toValue: 1,
-        duration: 180,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(barOpacity, {
-        toValue: 1,
-        duration: 180,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.spring(barRise, {
-        toValue: 0,
-        damping: 24,
-        stiffness: 260,
-        mass: 0.9,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    // Always show chrome immediately. Opacity-0 open + native driver inside a
+    // Modal left users with only the keyboard. Keep a tiny rise for feel.
+    barOpacity.setValue(1);
+    backdropOpacity.setValue(1);
+    barRise.setValue(RISE_PX);
+    Animated.timing(barRise, {
+      toValue: 0,
+      duration: OPEN_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
   }, [isVisible, barOpacity, barRise, backdropOpacity]);
 
   const animateClose = (after?: () => void) => {
@@ -109,20 +113,20 @@ export const NoteModal: React.FC<NoteModalProps> = ({
     Animated.parallel([
       Animated.timing(backdropOpacity, {
         toValue: 0,
-        duration: 150,
-        easing: Easing.in(Easing.cubic),
+        duration: CLOSE_MS,
+        easing: Easing.in(Easing.quad),
         useNativeDriver: true,
       }),
       Animated.timing(barOpacity, {
         toValue: 0,
-        duration: 130,
-        easing: Easing.in(Easing.cubic),
+        duration: CLOSE_MS,
+        easing: Easing.in(Easing.quad),
         useNativeDriver: true,
       }),
       Animated.timing(barRise, {
-        toValue: 10,
-        duration: 150,
-        easing: Easing.in(Easing.cubic),
+        toValue: RISE_PX,
+        duration: CLOSE_MS,
+        easing: Easing.in(Easing.quad),
         useNativeDriver: true,
       }),
     ]).start(({ finished }) => {
@@ -132,7 +136,6 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   };
 
   const handleClose = () => {
-    // Retract the keyboard immediately so it doesn't fight the closing fade.
     inputRef.current?.blur();
     animateClose(onClose);
   };
@@ -144,6 +147,10 @@ export const NoteModal: React.FC<NoteModalProps> = ({
   };
 
   const canSend = noteText.trim().length > 0;
+  const bottomPad =
+    keyboardHeight > 0
+      ? keyboardHeight + GAP_ABOVE_KEYBOARD
+      : insets.bottom + GAP_ABOVE_KEYBOARD;
 
   return (
     <Modal
@@ -153,13 +160,8 @@ export const NoteModal: React.FC<NoteModalProps> = ({
       onRequestClose={handleClose}
       statusBarTranslucent
     >
-      <KeyboardAvoidingView
-        behavior="padding"
-        style={styles.modalRoot}
-        keyboardVerticalOffset={0}
-      >
+      <View style={styles.modalRoot}>
         <Animated.View
-          pointerEvents="box-none"
           style={[styles.backdropFill, { opacity: backdropOpacity }]}
         >
           <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
@@ -169,7 +171,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
           style={[
             styles.barOuter,
             {
-              marginBottom: keyboardVisible ? 8 : insets.bottom + 8,
+              paddingBottom: bottomPad,
               opacity: barOpacity,
               transform: [{ translateY: barRise }],
             },
@@ -191,6 +193,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
                 className="text-white text-base"
                 multiline
                 scrollEnabled
+                autoFocus
                 style={styles.input}
                 textAlignVertical="top"
               />
@@ -219,7 +222,7 @@ export const NoteModal: React.FC<NoteModalProps> = ({
             </View>
           </View>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 };
