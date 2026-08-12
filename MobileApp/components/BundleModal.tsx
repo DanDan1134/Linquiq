@@ -20,7 +20,7 @@ import {
 } from "react-native";
 // @ts-ignore - Slider component from @react-native-community/slider
 import Slider from "@react-native-community/slider";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import {
   faXmark,
   faCopy,

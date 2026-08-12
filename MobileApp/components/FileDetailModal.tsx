@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { Audio, AVPlaybackStatus } from "expo-av";
 import { useVideoPlayer, VideoView } from "expo-video";

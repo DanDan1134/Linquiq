@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TouchableOpacity, Alert, StyleSheet, Modal } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import { faXmark, faCamera, faRotate } from "@fortawesome/free-solid-svg-icons";
 import { track } from "../utils/perfLog";
 import "../global.css";

@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import "../global.css";
 

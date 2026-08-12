@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { useSignIn } from '@clerk/clerk-expo'
-import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome'
+import { FontAwesomeIcon } from "./AppIcon";
 import { faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons'
 import '../global.css'
 

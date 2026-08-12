@@ -11,7 +11,7 @@ import {
   Platform,
   StyleSheet,
 } from "react-native";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import {
   faGear,
   faMagnifyingGlass,

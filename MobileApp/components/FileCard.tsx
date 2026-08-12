@@ -24,7 +24,7 @@ import {
   Platform,
 } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import {
   faCheck,
   faMicrophone,

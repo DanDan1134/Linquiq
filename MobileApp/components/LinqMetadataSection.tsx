@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, Clipboard, StyleSheet } from "react-native";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import { faCopy, faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import {
   getLinqDetailFields,

@@ -24,7 +24,7 @@ import {
   type KeyboardEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import { faArrowUp } from "@fortawesome/free-solid-svg-icons";
 import "../global.css";
 

@@ -9,7 +9,7 @@
  */
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import { faFileLines } from "@fortawesome/free-solid-svg-icons";
 import { faPaperclip } from "@fortawesome/free-solid-svg-icons";
 import { faMicrophone } from "@fortawesome/free-solid-svg-icons";

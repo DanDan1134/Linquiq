@@ -8,7 +8,7 @@ import {
   StyleSheet,
   Platform,
 } from "react-native";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import { faCheck } from "@fortawesome/free-solid-svg-icons";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 
