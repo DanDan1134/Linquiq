@@ -47,7 +47,8 @@ import * as filesApi from "../api/files";
 /** Row height in px. FileList uses this for getItemLayout — keep them in sync. */
 export const FILE_CARD_HEIGHT = 72;
 
-const MAX_FILE_LIST_NAME_CHARS = 24;
+/** Fixed width for the trailing type badge column so it lines up across every row. */
+const TYPE_BADGE_WIDTH = 50;
 
 type FileCardFile = {
   id: string;
@@ -299,10 +300,6 @@ const FileCardBase: React.FC<FileCardProps> = ({
     file.type,
     file.contentType,
   );
-  const clippedDisplayName =
-    displayName.length > MAX_FILE_LIST_NAME_CHARS
-      ? displayName.slice(0, MAX_FILE_LIST_NAME_CHARS)
-      : displayName;
 
   const showPhotoThumb = isImage && Boolean(thumbUri) && !thumbFailed;
 
@@ -419,20 +416,32 @@ const FileCardBase: React.FC<FileCardProps> = ({
           </View>
         )}
 
-        <View className="flex-1">
-          <Text className="text-white text-base font-medium" numberOfLines={1}>
-            {clippedDisplayName}
+        <View className="flex-1" style={{ minWidth: 0 }}>
+          <Text
+            className="text-white text-base font-medium"
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {displayName}
           </Text>
           <Text className="text-gray-400 text-xs mt-0.5" numberOfLines={1}>
             {file.date}
           </Text>
         </View>
 
-        <View className="flex-row items-center ml-2">
+        {/* Fixed width so this column lines up across every row, regardless
+            of label length ("linq" vs "Recording") or the name's length —
+            the name above truncates with "…" right before this column.
+            Right-aligned so the label sits flush against the card's edge
+            instead of hugging the left of its own fixed-width slot. */}
+        <View
+          className="flex-row items-center ml-2 "
+          style={{ width: TYPE_BADGE_WIDTH }}
+        >
           <View
             className={`w-2 h-2 rounded-full ${getTypeColor(file.typeColor)} mr-2`}
           />
-          <Text className="text-gray-300 text-xs">
+          <Text className="text-gray-300 text-xs" numberOfLines={1}>
             {displayTypeLabel(file.type)}
           </Text>
         </View>
@@ -464,8 +473,8 @@ export const FileCard = memo(FileCardBase, areEqual);
 const styles = StyleSheet.create({
   cardContainer: {
     height: FILE_CARD_HEIGHT,
-    paddingLeft: 4,
-    paddingRight: 14,
+    paddingLeft: 2,
+    paddingRight: 2,
   },
   checkboxTouchTarget: {
     width: 52,

@@ -40,10 +40,10 @@ const MIN_INPUT_HEIGHT = 22;
 /** Cap the field at roughly 7-8 lines — past this it scrolls internally instead of pushing the whole bar (and screen) taller. */
 const MAX_INPUT_HEIGHT = 160;
 
-const OPEN_MS = 100;
-const CLOSE_MS = 80;
+const OPEN_MS = 200;
+const CLOSE_MS = 30;
 const RISE_PX = 8;
-const GAP_ABOVE_KEYBOARD = 8;
+const GAP_ABOVE_KEYBOARD = 10;
 
 export const NoteModal: React.FC<NoteModalProps> = ({
   isVisible,

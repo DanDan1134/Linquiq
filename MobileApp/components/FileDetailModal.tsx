@@ -16,10 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
-import {
-  faXmark,
-  faChevronLeft,
-} from "@fortawesome/free-solid-svg-icons";
+import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import { Audio, AVPlaybackStatus } from "expo-av";
 import { useVideoPlayer, VideoView } from "expo-video";
 import {
@@ -671,29 +668,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
             paddingHorizontal: 10,
           }}
         >
-          {contentFullscreen ? (
-            <TouchableOpacity
-              onPress={() => {
-                if (startFullscreen || !hostedInModal) {
-                  onClose();
-                  return;
-                }
-                setFullscreenOverride(false);
-              }}
-              style={styles.headerButton}
-              accessibilityLabel={
-                startFullscreen
-                  ? "Back to linq"
-                  : !hostedInModal
-                    ? "Close file details"
-                    : "Back to file preview"
-              }
-              accessibilityRole="button"
-            >
-              <FontAwesomeIcon icon={faChevronLeft} size={20} color="white" />
-            </TouchableOpacity>
-          ) : null}
-
           <View className="flex-row items-center flex-1 mx-1" style={{ minWidth: 0 }}>
             <View
               className={`w-2.5 h-2.5 rounded-full ${getTypeColor(selectedFile.typeColor)} mr-2.5`}
@@ -707,16 +681,34 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
             </Text>
           </View>
 
-          {!contentFullscreen ? (
-            <TouchableOpacity
-              onPress={onClose}
-              style={styles.headerButton}
-              accessibilityLabel="Close file details"
-              accessibilityRole="button"
-            >
-              <FontAwesomeIcon icon={faXmark} size={20} color="white" />
-            </TouchableOpacity>
-          ) : null}
+          {/* Always the same X, same slot, same size — never swaps icon or side
+              based on fullscreen state, so the button never appears to move. */}
+          <TouchableOpacity
+            onPress={() => {
+              if (!contentFullscreen) {
+                onClose();
+                return;
+              }
+              if (startFullscreen || !hostedInModal) {
+                onClose();
+                return;
+              }
+              setFullscreenOverride(false);
+            }}
+            style={styles.headerButton}
+            accessibilityLabel={
+              !contentFullscreen
+                ? "Close file details"
+                : startFullscreen
+                  ? "Back to linq"
+                  : !hostedInModal
+                    ? "Close file details"
+                    : "Back to file preview"
+            }
+            accessibilityRole="button"
+          >
+            <FontAwesomeIcon icon={faXmark} size={20} color="white" />
+          </TouchableOpacity>
         </View>
 
         {/* Body */}

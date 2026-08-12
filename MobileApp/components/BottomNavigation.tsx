@@ -50,69 +50,55 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
     : "bg-button-outline border-button-outline";
 
   return (
-    <View style={styles.bar} className="px-4 py-3 flex-row justify-around">
+    <View style={styles.bar} className="px-4 py-3 flex-row justify-around items-center">
       <AppPressable
         fillParent
-        style={styles.actionColumn}
         onPress={onNotePress}
         accessibilityRole="button"
         accessibilityLabel="Write a note"
+        className="w-16 h-16 border-2 bg-button-outline border-button-outline rounded-full items-center justify-center"
       >
-        <View style={styles.captionSlot} />
-        <View className="w-16 h-16 border-2 bg-button-outline border-button-outline rounded-full items-center justify-center">
-          <FontAwesomeIcon icon={faFileLines} size={20} color="black" />
-        </View>
+        <FontAwesomeIcon icon={faFileLines} size={20} color="black" />
       </AppPressable>
 
       <AppPressable
         fillParent
-        style={styles.actionColumn}
         onPress={onAttachmentPress}
         accessibilityRole="button"
         accessibilityLabel="Upload a file or image"
+        className="w-16 h-16 border-2 bg-button-outline border-button-outline rounded-full items-center justify-center"
       >
-        <View style={styles.captionSlot} />
-        <View className="w-16 h-16 border-2 bg-button-outline border-button-outline rounded-full items-center justify-center">
-          <FontAwesomeIcon icon={faPaperclip} size={20} color="black" />
-        </View>
+        <FontAwesomeIcon icon={faPaperclip} size={20} color="black" />
       </AppPressable>
 
       <AppPressable
         fillParent
-        style={[styles.actionColumn, isMicBusy ? styles.micBusy : undefined]}
         onPress={onMicrophonePress}
         accessibilityRole="button"
         accessibilityLabel={isRecording ? "Stop recording" : "Start recording"}
+        style={isMicBusy ? styles.micBusy : undefined}
+        className={`w-16 h-16 border-2 rounded-full items-center justify-center ${micCircleClass}`}
       >
-        <View style={styles.captionSlot}>
-          {isRecording ? (
-            <Text className="text-slate-400 text-xs">
-              {formatTime(recordingTime)}
-            </Text>
-          ) : null}
-        </View>
-        <View
-          className={`w-16 h-16 border-2 rounded-full items-center justify-center ${micCircleClass}`}
-        >
-          <FontAwesomeIcon
-            icon={faMicrophone}
-            size={20}
-            color={isRecording ? "white" : "black"}
-          />
-        </View>
+        {isRecording ? (
+          <Text style={styles.recordingTime} className="text-slate-400 text-xs">
+            {formatTime(recordingTime)}
+          </Text>
+        ) : null}
+        <FontAwesomeIcon
+          icon={faMicrophone}
+          size={20}
+          color={isRecording ? "white" : "black"}
+        />
       </AppPressable>
 
       <AppPressable
         fillParent
-        style={styles.actionColumn}
         onPress={onCameraPress}
         accessibilityRole="button"
         accessibilityLabel="Take a photo"
+        className="w-16 h-16 border-2 bg-button-outline border-button-outline rounded-full items-center justify-center"
       >
-        <View style={styles.captionSlot} />
-        <View className="w-16 h-16 border-2 bg-button-outline border-button-outline rounded-full items-center justify-center">
-          <FontAwesomeIcon icon={faCamera} size={20} color="black" />
-        </View>
+        <FontAwesomeIcon icon={faCamera} size={20} color="black" />
       </AppPressable>
     </View>
   );
@@ -123,15 +109,10 @@ const styles = StyleSheet.create({
     zIndex: 30,
     elevation: 30,
   },
-  actionColumn: {
-    flex: 1,
-    minHeight: 96,
-    alignItems: "center",
-    justifyContent: "flex-end",
-  },
-  captionSlot: {
-    height: 12,
-    marginBottom: 4,
+  recordingTime: {
+    position: "absolute",
+    top: -20,
+    alignSelf: "center",
   },
   micBusy: {
     opacity: 0.55,

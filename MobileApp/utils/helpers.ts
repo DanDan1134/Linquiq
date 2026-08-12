@@ -360,14 +360,18 @@ export function getDisplayFileNameForUi(
 }
 
 /**
- * Auto title for Linqs using child file types.
- * Example: "linq | note, pdf, image +4"
+ * Auto title for Linqs using child file count (+ types for small Linqs).
+ * The type badge/icon shown next to the name already marks it as a Linq,
+ * so the title itself doesn't repeat "linq" — just the useful part.
+ * Examples: "1 item · note", "3 items · image, pdf", "6 items"
  */
 export function deriveLinqTitleFromFiles(
   files: Array<{ name?: string | null; type?: string | null; contentType?: string | null }> | null | undefined
 ): string {
-  const MAX_LINQ_TITLE_CHARS = 22;
-  const LINQ_PREFIX = "linq | ";
+  const MAX_LINQ_TITLE_CHARS = 34;
+  // Above this many children, a type list would need a "+N" tail anyway —
+  // simpler and neater to just show the count.
+  const MAX_TYPES_SHOWN = 3;
   const list = Array.isArray(files) ? files : [];
   const labels = list
     .map((f) => {
@@ -385,37 +389,25 @@ export function deriveLinqTitleFromFiles(
     .map((s) => String(s).trim())
     .filter(Boolean);
 
-  if (!labels.length) return "linq";
-  const uniqueLabels: string[] = [];
-  for (const label of labels) {
-    if (!uniqueLabels.includes(label)) uniqueLabels.push(label);
-  }
+  const total = labels.length;
+  if (!total) return "linq";
 
-  let best = "linq";
-  const maxShown = Math.min(uniqueLabels.length, labels.length);
-  for (let shownCount = maxShown; shownCount >= 1; shownCount -= 1) {
-    const shownLabels = uniqueLabels.slice(0, shownCount);
-    const head = shownLabels.join(", ");
-    // Hidden count is based on total child count so repeated nested types still affect +N.
-    const remaining = Math.max(0, labels.length - shownCount);
-    const candidate =
-      remaining > 0
-        ? `${LINQ_PREFIX}${head} +${remaining}`
-        : `${LINQ_PREFIX}${head}`;
-    if (candidate.length <= MAX_LINQ_TITLE_CHARS) {
-      best = candidate;
-      break;
+  const countLabel = `${total} item${total === 1 ? "" : "s"}`;
+
+  if (total <= MAX_TYPES_SHOWN) {
+    const uniqueLabels: string[] = [];
+    for (const label of labels) {
+      if (!uniqueLabels.includes(label)) uniqueLabels.push(label);
+    }
+    // Graceful fallback: if the full unique-type list doesn't fit, drop
+    // labels from the end one at a time rather than dropping the whole list.
+    for (let shown = uniqueLabels.length; shown >= 1; shown -= 1) {
+      const withTypes = `${countLabel} · ${uniqueLabels.slice(0, shown).join(", ")}`;
+      if (withTypes.length <= MAX_LINQ_TITLE_CHARS) return withTypes;
     }
   }
 
-  if (best === "linq") {
-    const fallback = `${LINQ_PREFIX}+${labels.length}`;
-    return fallback.length <= MAX_LINQ_TITLE_CHARS
-      ? fallback
-      : fallback.slice(0, MAX_LINQ_TITLE_CHARS);
-  }
-
-  return best;
+  return countLabel;
 }
 
 /** Shorten names in console output (default: first 6 chars + ellipsis). */

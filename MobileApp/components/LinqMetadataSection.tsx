@@ -205,13 +205,15 @@ const styles = StyleSheet.create({
     borderColor: "#374151",
     borderRadius: 10,
     backgroundColor: "rgba(31, 41, 55, 0.45)",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   summaryRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    // 48 is the accessibility-minimum touch target — kept as-is even though
+    // the panel's own padding shrank, so the row stays tappable.
     minHeight: 48,
   },
   summary: {
@@ -231,15 +233,15 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   body: {
-    marginTop: 8,
+    marginTop: 4,
     borderTopWidth: 1,
     borderTopColor: "#374151",
-    paddingTop: 8,
+    paddingTop: 6,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 5,
+    marginBottom: 4,
   },
   label: {
     width: LABEL_WIDTH,
