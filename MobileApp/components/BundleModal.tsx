@@ -329,14 +329,15 @@ export const BundleModal: React.FC<BundleModalProps> = ({
           const existing = String(
             (pdfDirectUrlById as Record<string, string>)[id] ?? ""
           ).trim();
+          // Already fetched fresh this session — no need to refetch.
           if (existing && !isSitePreviewUrl(existing)) return;
           const local = getFileLocalUri(file);
           if (local) return;
-          const remoteExisting = String(file?.url ?? "").trim();
-          if (remoteExisting && !isSitePreviewUrl(remoteExisting)) {
-            updates[id] = remoteExisting;
-            return;
-          }
+          if (!isOnline) return;
+          // Never trust `file.url` here — it's a presigned S3 link cached from
+          // whenever the bundle was last hydrated/synced and can already be
+          // expired by the time this modal opens. Always mint a fresh one,
+          // matching the web app's behavior.
           const direct = await fetchUrl(id).catch(() => null);
           const clean = String(direct ?? "").trim();
           if (clean && !isSitePreviewUrl(clean)) updates[id] = clean;
@@ -350,8 +351,8 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per open / file set
-  }, [isVisible, bundleData?.files, fetchUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per open / file set (+ retry when connectivity returns)
+  }, [isVisible, bundleData?.files, fetchUrl, isOnline]);
 
   // Stop audio when modal closes
   useEffect(() => {
@@ -571,7 +572,26 @@ export const BundleModal: React.FC<BundleModalProps> = ({
   };
 
   const handleOpenDocumentFile = async (file: BundleFile) => {
-    const source = String(getPreviewUri(file) || file?.url || "").trim();
+    const local = getFileLocalUri(file);
+    let source = "";
+    if (local) {
+      source = local;
+    } else if (!isOnline) {
+      Alert.alert("You're offline", "Connect to the internet to open this file.");
+      return;
+    } else {
+      // Always mint a fresh URL at open-time rather than reuse a cached one —
+      // presigned S3 links expire and mobile has no way to know when.
+      const id = String(file?.id ?? "").trim();
+      if (fetchUrl && id && !id.startsWith("opt-")) {
+        try {
+          source = String((await fetchUrl(id)) ?? "").trim();
+        } catch {
+          source = "";
+        }
+      }
+      if (!source) source = String(getPreviewUri(file) || "").trim();
+    }
     if (!source) {
       Alert.alert("File not ready", "This document link is not available yet.");
       return;

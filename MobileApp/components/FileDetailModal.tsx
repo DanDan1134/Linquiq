@@ -118,10 +118,13 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     selectedFile?.local_uri && String(selectedFile.local_uri).trim() !== ""
       ? String(selectedFile.local_uri)
       : undefined;
-  const rawFileUrl = localUri || selectedFile?.url;
-  // Never feed the HTML /preview/{id} page into Image / PDF WebView.
+  // Never trust `selectedFile.url` here — it's a presigned S3 link cached from
+  // whenever this row was last synced/hydrated, and can be well past its
+  // expiry by the time the user opens it. Only a real on-device copy
+  // (`localUri`) is safe to reuse indefinitely; everything remote is always
+  // re-fetched fresh below when online, matching the web app's behavior.
   const fileUrl: string | undefined =
-    rawFileUrl && !isSitePreviewUrl(rawFileUrl) ? rawFileUrl : undefined;
+    localUri && !isSitePreviewUrl(localUri) ? localUri : undefined;
   const previewUrl = getFilePreviewUrl(selectedFile?.id) || undefined;
   /** Prefer direct media URL / local_uri. Site preview is share-only, not for RN media. */
   const [hydratedRemoteUrl, setHydratedRemoteUrl] = useState<string | undefined>(
@@ -574,13 +577,11 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     ? Math.min(Math.round(winH * 0.56), 620)
     : Math.round(winH * 0.26);
 
-  const canOpenDocument =
-    Boolean(localUri) ||
-    (isOnline && Boolean(fileUrl || selectedFile?.url || previewUrl));
+  // If online we can always mint a fresh URL on demand (see handleOpenDocument),
+  // so don't gate this on a possibly-stale cached URL already being present.
+  const canOpenDocument = Boolean(localUri) || isOnline;
 
-  const showHeaderViewEntry =
-    !contentFullscreen &&
-    Boolean(previewUrl || selectedFile?.url || fileUrl);
+  const showHeaderViewEntry = !contentFullscreen && canOpenDocument;
 
   const offlineImageOrPdfBlocked = isOfflineImageOrPdfPreviewBlocked(
     isOnline,
@@ -593,7 +594,30 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
 
   const handleOpenDocument = async () => {
     if (!isDocumentLike) return;
-    const sourceUri = String(localUri ?? fileUrl ?? selectedFile?.url ?? previewUrl ?? "").trim();
+    if (localUri) {
+      await openDocumentFromLocalOrDownload({
+        sourceUri: localUri,
+        fileName: displayFileName,
+        contentType: String(selectedFile?.contentType ?? ""),
+      });
+      return;
+    }
+    if (!isOnline) {
+      Alert.alert("You're offline", "Connect to the internet to open this file.");
+      return;
+    }
+    // Always mint a fresh URL at open-time rather than reuse a cached one —
+    // presigned S3 links expire and mobile has no way to know when.
+    const id = String(selectedFile?.id ?? "").trim();
+    let sourceUri = "";
+    if (fetchUrl && id && !id.startsWith("opt-")) {
+      try {
+        sourceUri = String((await fetchUrl(id)) ?? "").trim();
+      } catch {
+        sourceUri = "";
+      }
+    }
+    if (!sourceUri) sourceUri = String(previewUrl ?? "").trim();
     if (!sourceUri) {
       Alert.alert("File not ready", "This document is still loading.");
       return;
