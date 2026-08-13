@@ -87,6 +87,8 @@ interface HeaderProps {
   isDeletingFiles?: boolean;
   /** Current sync state — drives the sync icon appearance */
   syncStatus?: SyncStatus;
+  /** Background cache progress while status is `caching`. */
+  downloadProgress?: { done: number; total: number } | null;
   /** True when there are unsynced local changes queued in outbox. */
   hasPendingLocalChanges?: boolean;
   /** Called when user taps the sync icon */
@@ -106,6 +108,7 @@ export const Header: React.FC<HeaderProps> = ({
   onDeleteSelected,
   isDeletingFiles = false,
   syncStatus = "idle",
+  downloadProgress = null,
   hasPendingLocalChanges = false,
   onSyncPress,
 }) => {
@@ -117,12 +120,14 @@ export const Header: React.FC<HeaderProps> = ({
     setAvatarLoadFailed(false);
   }, [avatarUrl]);
 
-  // Spin animation for the sync icon when syncing
+  const isSyncBusy = syncStatus === "syncing" || syncStatus === "caching";
+
+  // Spin animation for the sync icon when syncing or caching
   const spinValue = useRef(new Animated.Value(0)).current;
   const spinAnimation = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
-    if (syncStatus === "syncing") {
+    if (isSyncBusy) {
       spinValue.setValue(0);
       spinAnimation.current = Animated.loop(
         Animated.timing(spinValue, {
@@ -138,7 +143,7 @@ export const Header: React.FC<HeaderProps> = ({
       spinAnimation.current = null;
       spinValue.setValue(0);
     }
-  }, [syncStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isSyncBusy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const spinDeg = spinValue.interpolate({
     inputRange: [0, 1],
@@ -150,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
       ? "#ef4444"
       : syncStatus === "offline"
         ? "#94a3b8"
-        : syncStatus === "syncing"
+        : isSyncBusy
           ? "#D7827E"
           : hasPendingLocalChanges
             ? "#f59e0b"
@@ -161,22 +166,33 @@ export const Header: React.FC<HeaderProps> = ({
       ? faCircleExclamation
       : syncStatus === "offline"
         ? faClock
-        : syncStatus === "syncing"
+        : isSyncBusy
           ? faArrowsRotate
           : hasPendingLocalChanges
             ? faClock
             : faCircleCheck;
 
+  const cacheLabel =
+    syncStatus === "caching" &&
+    downloadProgress &&
+    downloadProgress.total > 0
+      ? `Saving ${Math.min(downloadProgress.done, downloadProgress.total)} of ${downloadProgress.total}…`
+      : syncStatus === "caching"
+        ? "Saving files…"
+        : null;
+
   const syncLabel =
     syncStatus === "syncing"
-      ? "Syncing…"
-      : syncStatus === "error"
-        ? "Couldn't sync"
-        : syncStatus === "offline"
-          ? "Offline"
-          : hasPendingLocalChanges
-            ? "Pending sync"
-            : "Synced";
+      ? "Updating list…"
+      : cacheLabel
+        ? cacheLabel
+        : syncStatus === "error"
+          ? "Couldn't sync"
+          : syncStatus === "offline"
+            ? "Offline"
+            : hasPendingLocalChanges
+              ? "Pending sync"
+              : "Synced";
 
   // Search row visible immediately (avoid opacity-0 flash if native driver anim fails)
   const searchRowOpacity = useRef(new Animated.Value(1)).current;
@@ -225,14 +241,16 @@ export const Header: React.FC<HeaderProps> = ({
             delayPressIn={0}
             accessibilityLabel={
               syncStatus === "syncing"
-                ? "Syncing…"
-                : syncStatus === "error"
-                  ? "Sync error — tap to retry"
-                  : syncStatus === "offline"
-                    ? "Offline — showing cached content"
-                    : hasPendingLocalChanges
-                      ? "Pending local changes — tap to sync now"
-                      : "Synced — tap to sync now"
+                ? "Updating list…"
+                : syncStatus === "caching"
+                  ? cacheLabel ?? "Saving files…"
+                  : syncStatus === "error"
+                    ? "Sync error — tap to retry"
+                    : syncStatus === "offline"
+                      ? "Offline — showing cached content"
+                      : hasPendingLocalChanges
+                        ? "Pending local changes — tap to sync now"
+                        : "Synced — tap to sync now"
             }
             style={{
               minHeight: 48,
@@ -242,7 +260,7 @@ export const Header: React.FC<HeaderProps> = ({
               gap: 6,
             }}
           >
-            {syncStatus === "syncing" ? (
+            {isSyncBusy ? (
               <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
                 <FontAwesomeIcon
                   icon={syncIcon}

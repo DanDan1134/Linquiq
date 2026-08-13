@@ -1,4 +1,4 @@
-import { apiGet, apiDelete } from './client';
+import { apiGet, apiPost, apiDelete } from './client';
 import { dedupe } from '../utils/inflight';
 import { getCachedUrl, setCachedUrl } from '../utils/urlCache';
 
@@ -13,6 +13,8 @@ type ServerFileRow = {
   description?: string | null;
   /** Presigned GET when the list endpoint includes it (often omitted — see FileCard bootstrap). */
   url?: string | null;
+  /** Present on linq/list rows from GET /api/files — avoids per-linq getContents. */
+  bundledFileIds?: string[] | null;
 };
 
 export type UiFile = {
@@ -23,11 +25,15 @@ export type UiFile = {
   createdAt?: string;
   creator?: string;
   url?: string | null;
+  bundledFileIds?: string[];
 };
 
 function mapServerRow(row: ServerFileRow): UiFile {
   const id = String(row.id ?? '');
   const rawUrl = row.url != null ? String(row.url).trim() : '';
+  const bundled = Array.isArray(row.bundledFileIds)
+    ? row.bundledFileIds.map((x) => String(x).trim()).filter(Boolean)
+    : undefined;
   return {
     id,
     name: row.name ?? 'Untitled',
@@ -36,6 +42,7 @@ function mapServerRow(row: ServerFileRow): UiFile {
     createdAt: row.createdAt,
     creator: row.creator_email ?? row.creator_id ?? '',
     url: rawUrl.length > 0 ? rawUrl : null,
+    ...(bundled ? { bundledFileIds: bundled } : {}),
   };
 }
 
@@ -68,6 +75,51 @@ export async function getById(id: string): Promise<{ url: string; type?: string;
     setCachedUrl(id, { url, type, name });
     return { url, type, name };
   });
+}
+
+/**
+ * Batch-presign GET URLs for many file ids (POST /api/files/urls).
+ * Populates the same in-memory url cache used by getById.
+ */
+export async function getUrlsByIds(
+  ids: string[]
+): Promise<Record<string, string>> {
+  const unique = [
+    ...new Set(
+      ids.map((id) => String(id ?? "").trim()).filter((id) => id && !id.startsWith("opt-"))
+    ),
+  ];
+  if (unique.length === 0) return {};
+
+  const fromCache: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const id of unique) {
+    const cached = getCachedUrl(id);
+    if (cached?.url) fromCache[id] = cached.url;
+    else missing.push(id);
+  }
+  if (missing.length === 0) return fromCache;
+
+  const CHUNK = 40;
+  const urls: Record<string, string> = { ...fromCache };
+  for (let i = 0; i < missing.length; i += CHUNK) {
+    const chunk = missing.slice(i, i + CHUNK);
+    try {
+      const payload = await apiPost<{ urls?: Record<string, string> }>(`/files/urls`, {
+        ids: chunk,
+      });
+      const map = payload?.urls ?? {};
+      for (const [id, url] of Object.entries(map)) {
+        const clean = String(url ?? "").trim();
+        if (!clean) continue;
+        urls[id] = clean;
+        setCachedUrl(id, { url: clean });
+      }
+    } catch (e) {
+      console.warn("[files] batch urls failed; callers may fall back to getById", e);
+    }
+  }
+  return urls;
 }
 
 /**

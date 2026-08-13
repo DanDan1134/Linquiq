@@ -87,32 +87,37 @@ export async function pullAndMerge(): Promise<{
   // 2. Track server ids so we can detect server-side deletes
   const serverIds = new Set(raw.map((r: any) => String(r.id)));
 
-  // 3. Backfill linq child ids before declaring sync complete.
-  // The list endpoint can omit bundledFileIds; without these, offline linqs
-  // cannot rebuild their children from SQLite.
-  const linqRows = raw.filter((item: any) => isLinqType(item?.type));
-  await concurrentMap(
-    linqRows,
-    async (item: any) => {
-      const id = String(item?.id ?? '').trim();
-      if (!id) return;
-      try {
-        const contents = await bundlesApi.getContents(id);
-        const ids = Array.isArray(contents?.bundledFileIds)
-          ? contents.bundledFileIds.map((x: any) => String(x)).filter(Boolean)
-          : [];
-        const urls = Array.isArray(contents?.bundledUrls)
-          ? contents.bundledUrls.map((x: any) => String(x)).filter(Boolean)
-          : [];
-        if (ids.length > 0) item.bundledFileIds = ids;
-        if (urls.length > 0) item.bundledUrls = urls;
-      } catch {
-        const previousIds = localBundleById.get(id)?.bundledFileIds ?? [];
-        if (previousIds.length > 0) item.bundledFileIds = previousIds;
-      }
-    },
-    4
-  );
+  // 3. Backfill linq child ids only when the list payload omitted them.
+  // GET /api/files now embeds bundledFileIds for linqs (one SQL join), so this
+  // N+1 path is a fallback for older servers / partial rows.
+  const linqRows = raw.filter((item: any) => {
+    if (!isLinqType(item?.type)) return false;
+    return !Array.isArray(item?.bundledFileIds);
+  });
+  if (linqRows.length > 0) {
+    await concurrentMap(
+      linqRows,
+      async (item: any) => {
+        const id = String(item?.id ?? "").trim();
+        if (!id) return;
+        try {
+          const contents = await bundlesApi.getContents(id);
+          const ids = Array.isArray(contents?.bundledFileIds)
+            ? contents.bundledFileIds.map((x: any) => String(x)).filter(Boolean)
+            : [];
+          const urls = Array.isArray(contents?.bundledUrls)
+            ? contents.bundledUrls.map((x: any) => String(x)).filter(Boolean)
+            : [];
+          if (ids.length > 0) item.bundledFileIds = ids;
+          if (urls.length > 0) item.bundledUrls = urls;
+        } catch {
+          const previousIds = localBundleById.get(id)?.bundledFileIds ?? [];
+          if (previousIds.length > 0) item.bundledFileIds = previousIds;
+        }
+      },
+      4
+    );
+  }
 
   // 4. Upsert each server row into SQLite (server wins unless local dirty)
   for (const item of raw) {

@@ -1540,6 +1540,7 @@ const filteredFiles = useMemo(() => {
   const {
     status: syncStatus,
     triggerSync,
+    downloadProgress,
     hasPendingLocalChanges,
     markLocalChangePending,
   } = useSyncStatus({
@@ -3379,6 +3380,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
         onDeleteSelected={handleBulkDeleteSelected}
         isDeletingFiles={isDeletingFiles}
         syncStatus={syncStatus}
+        downloadProgress={downloadProgress}
         hasPendingLocalChanges={hasPendingLocalChanges}
         onSyncPress={triggerSync}
       />

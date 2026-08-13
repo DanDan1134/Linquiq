@@ -2,9 +2,10 @@
  * useSyncStatus — central sync orchestrator hook.
  *
  * Responsibilities:
- *  - Exposes sync status ('idle' | 'syncing' | 'offline' | 'error') to the UI.
+ *  - Exposes sync status ('idle' | 'syncing' | 'caching' | 'offline' | 'error') to the UI.
  *  - Syncs only when `triggerSync` is called by a user action.
  *  - Drains the outbox (pending uploads), then does a pull-merge from server.
+ *  - Marks metadata sync done quickly; caches binaries in the background.
  *  - Calls back with fresh { files, bundles } so App.tsx can update React state.
  */
 
@@ -23,7 +24,7 @@ import { pendingCount } from '../db/outbox';
 import { downloadPendingContent } from '../sync/contentDownloader';
 import { logPerf } from '../utils/perfLog';
 
-export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'error';
+export type SyncStatus = 'idle' | 'syncing' | 'caching' | 'offline' | 'error';
 
 /** How a sync snapshot was produced. Never infer this from `raw.length`
  *  — an empty server list (all items deleted) is a valid online pull. */
@@ -40,6 +41,8 @@ export type SyncPullResult = SyncCompletePayload & {
   changedFileIds?: string[];
 };
 
+export type DownloadProgress = { done: number; total: number };
+
 type UseSyncStatusOptions = {
   /** Called with fresh data after a successful pull-merge. */
   onSyncComplete: (data: SyncCompletePayload) => void;
@@ -50,9 +53,13 @@ type UseSyncStatusOptions = {
 export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions) {
   const [status, setStatus] = useState<SyncStatus>('idle');
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
-  const [downloadProgress, setDownloadProgress] = useState<{ done: number; total: number } | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [hasPendingLocalChanges, setHasPendingLocalChanges] = useState(false);
+  /** Guards outbox + pull only — background cache does not block Sync. */
   const syncInFlight = useRef(false);
+  const cacheInFlight = useRef(false);
+  const onSyncCompleteRef = useRef(onSyncComplete);
+  onSyncCompleteRef.current = onSyncComplete;
 
   const refreshPendingState = useCallback(async () => {
     try {
@@ -62,6 +69,43 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
       // Non-fatal; keep current indicator state.
     }
   }, []);
+
+  const runBackgroundCache = useCallback(
+    async (changedFileCount: number, pendingCacheCount: number) => {
+      if (cacheInFlight.current) {
+        // downloadPendingContent coalesces reruns when already busy.
+      }
+      cacheInFlight.current = true;
+      setStatus('caching');
+      setDownloadProgress(
+        pendingCacheCount > 0 ? { done: 0, total: pendingCacheCount } : null
+      );
+      const cacheT = Date.now();
+      try {
+        await downloadPendingContent((done, total) => {
+          setDownloadProgress({ done, total });
+        });
+
+        const files = await getAllFiles();
+        const bundles = await getAllBundles();
+        onSyncCompleteRef.current({ files, bundles, raw: [], source: 'cache' });
+        if (__DEV__) {
+          logPerf(
+            'sync',
+            `cache stage finished · changed ${changedFileCount} · pending ${pendingCacheCount}`,
+            cacheT
+          );
+        }
+      } catch (e) {
+        console.warn('[sync] cache stage failed:', e);
+      } finally {
+        cacheInFlight.current = false;
+        setTimeout(() => setDownloadProgress(null), 1_200);
+        setStatus((s) => (s === 'caching' ? 'idle' : s));
+      }
+    },
+    []
+  );
 
   // ── Core sync function ─────────────────────────────────────────────────
   const runSync = useCallback(async (): Promise<SyncPullResult | null> => {
@@ -118,54 +162,29 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
           syncT
         );
       }
-      // Update list immediately after pull so users can interact,
-      // but keep status=syncing until cache download also finishes.
-      // Tag as server even when raw is [] (everything deleted on web).
+      // Metadata sync is done — list is usable immediately.
       onSyncComplete({ ...result, source: 'server' });
 
-      // 3. Cache stage:
-      //    - Always run on first launch if SQLite still has pending/failed uncached rows.
-      //    - Otherwise run only when pull introduced new/updated server files.
+      await refreshPendingState();
+      setLastSyncedAt(new Date());
+
+      // 3. Cache binaries in the background (does not block Sync idle / next tap).
       const changedFileCount = result.changedFileIds?.length ?? 0;
       const pendingCacheRows = await getFilesNeedingDownload();
       const pendingCacheCount = pendingCacheRows.length;
       const shouldRunCache = changedFileCount > 0 || pendingCacheCount > 0;
-      if (shouldRunCache) {
-        setDownloadProgress(null);
-        const cacheT = Date.now();
-        try {
-          await downloadPendingContent((done, total) => {
-            setDownloadProgress({ done, total });
-            if (done >= total) {
-              // Brief delay so the UI can show "100%" before clearing
-              setTimeout(() => setDownloadProgress(null), 1_500);
-            }
-          });
 
-          // Refresh React state from SQLite so new local_uri/content appears immediately.
-          const files = await getAllFiles();
-          const bundles = await getAllBundles();
-          onSyncComplete({ files, bundles, raw: [], source: 'cache' });
-          if (__DEV__) {
-            logPerf(
-              'sync',
-              `cache stage finished · changed ${changedFileCount} · pending ${pendingCacheCount}`,
-              cacheT
-            );
-          }
-        } catch (e) {
-          console.warn('[sync] cache stage failed:', e);
-        }
+      syncInFlight.current = false;
+
+      if (shouldRunCache) {
+        void runBackgroundCache(changedFileCount, pendingCacheCount);
       } else {
         setDownloadProgress(null);
+        setStatus('idle');
         if (__DEV__) {
           console.log('[sync] cache stage skipped · no changed ids and no pending cache rows');
         }
       }
-
-      await refreshPendingState();
-      setLastSyncedAt(new Date());
-      setStatus('idle');
 
       return result;
     } catch (err) {
@@ -177,7 +196,7 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
     } finally {
       syncInFlight.current = false;
     }
-  }, [enabled, onSyncComplete, refreshPendingState]);
+  }, [enabled, onSyncComplete, refreshPendingState, runBackgroundCache]);
 
   // ── Expose triggerSync so App.tsx / the sync button can call it ────────
   /** Resolves when outbox drain + pull (or offline SQLite read) finishes; returns pull payload or null. */

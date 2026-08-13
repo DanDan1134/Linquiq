@@ -4,15 +4,25 @@ export const API_BASE = "https://linquiq-sigma.vercel.app"; // Vercel deploy (no
 let getTokenFn: (opts?: any) => Promise<string | null> = async () => null;
 export function setTokenGetter(fn: typeof getTokenFn) { getTokenFn = fn }
 
+/** Reuse JWT briefly during sync bursts to avoid Clerk round-trips per N+1 call. */
+const TOKEN_CACHE_TTL_MS = 10_000;
+let cachedAuth: { jwt: string; at: number } | null = null;
+
 async function authHeader(): Promise<Record<string, string>> {
-  // Fresh token each request — avoids stale/empty sessions after Clerk domain/key changes.
+  const now = Date.now();
+  if (cachedAuth && now - cachedAuth.at < TOKEN_CACHE_TTL_MS) {
+    return { Authorization: `Bearer ${cachedAuth.jwt}` };
+  }
+  // Fresh token when cache misses — avoids stale/empty sessions after Clerk domain/key changes.
   const jwt = await getTokenFn?.({ skipCache: true });
   if (!jwt) {
+    cachedAuth = null;
     console.warn(
       "[api] no Clerk session token — sign out and sign in again, and confirm mobile publishable key matches Vercel CLERK keys"
     );
     return {};
   }
+  cachedAuth = { jwt, at: now };
   return { Authorization: `Bearer ${jwt}` };
 }
 

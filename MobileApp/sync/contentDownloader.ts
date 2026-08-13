@@ -38,7 +38,7 @@ const CACHE_DIR = `${FileSystem.documentDirectory}linquiq_cache/`;
 const MAX_AUTO_BYTES = 75 * 1024 * 1024; // 75 MB
 
 /** How many files to download in parallel. */
-const CONCURRENCY = 3;
+const CONCURRENCY = 6;
 
 // ── Internals ──────────────────────────────────────────────────────────────────
 
@@ -113,16 +113,22 @@ function isImageRow(file: LocalFile): boolean {
   return /\.(jpe?g|png|gif|webp|heic|bmp)$/i.test(n);
 }
 
-async function processFile(file: LocalFile): Promise<void> {
+async function processFile(
+  file: LocalFile,
+  urlHint?: string | null
+): Promise<void> {
   const id = file.id;
 
-  let presignedUrl: string | null = null;
-  try {
-    const meta = await filesApi.getById(id);
-    presignedUrl = meta?.url ?? null;
-  } catch {
-    await markDownloadFailed(id);
-    return;
+  let presignedUrl: string | null =
+    urlHint && String(urlHint).trim() !== "" ? String(urlHint).trim() : null;
+  if (!presignedUrl) {
+    try {
+      const meta = await filesApi.getById(id);
+      presignedUrl = meta?.url ?? null;
+    } catch {
+      await markDownloadFailed(id);
+      return;
+    }
   }
 
   if (!presignedUrl) {
@@ -213,9 +219,18 @@ export async function downloadPendingContent(
       if (total === 0) continue;
 
       let done = 0;
+      // One batch presign for the whole pending set, then download in parallel.
+      let urlMap: Record<string, string> = {};
+      try {
+        urlMap = await filesApi.getUrlsByIds(files.map((f) => f.id));
+      } catch {
+        urlMap = {};
+      }
       for (let i = 0; i < files.length; i += CONCURRENCY) {
         const batch = files.slice(i, i + CONCURRENCY);
-        await Promise.allSettled(batch.map((f) => processFile(f)));
+        await Promise.allSettled(
+          batch.map((f) => processFile(f, urlMap[String(f.id)] ?? null))
+        );
         done += batch.length;
         onProgress?.(Math.min(done, total), total);
       }
