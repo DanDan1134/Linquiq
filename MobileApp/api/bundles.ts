@@ -3,15 +3,30 @@ import * as filesApi from './files';
 import { apiGet, apiPost } from './client';
 import { dedupe } from '../utils/inflight';
 
-export async function createBundle(serverIds: string[]): Promise<{
+export async function createBundle(
+  serverIds: string[],
+  name?: string
+): Promise<{
   okay: boolean
   message: string
   data: { bundle: any; links: any[] }
 }> {
-  if (!serverIds || serverIds.length < 2) {
-    throw new Error('Select at least two items to create a linq')
-  }
-  return apiPost(`/files/connect`, { file_ids: serverIds }) as any
+  return apiPost(`/files/connect`, {
+    file_ids: serverIds ?? [],
+    name: String(name ?? "").trim() || "Untitled linq",
+  }) as any
+}
+
+export async function addFilesToBundle(
+  bundleId: string,
+  fileIds: string[]
+): Promise<{ message?: string }> {
+  const id = String(bundleId ?? "").trim();
+  const ids = (fileIds ?? []).map((x) => String(x).trim()).filter(Boolean);
+  if (!id || ids.length === 0) return { message: "noop" };
+  return apiPost(`/files/link`, {
+    links: ids.map((file_to) => ({ file_from: id, file_to })),
+  }) as any;
 }
 
 type FilesBundleResponse = {

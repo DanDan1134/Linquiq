@@ -4,6 +4,7 @@ import {
   Alert,
   View,
   Text,
+  TouchableOpacity,
   InteractionManager,
   Platform,
 } from "react-native";
@@ -28,6 +29,7 @@ import { BottomNavigation } from "./components/BottomNavigation";
 import { NoteModal } from "./components/NoteModal";
 import { FileDetailModal } from "./components/FileDetailModal";
 import { BundleModal } from "./components/BundleModal";
+import { NameLinqModal } from "./components/NameLinqModal";
 import { useBundlePreview } from './hooks/useBundlePreview';
 import { CameraModal } from "./components/CameraModal";
 import { SettingsModal } from "./components/SettingsModal";
@@ -1034,6 +1036,16 @@ function AppContent() {
 
   // File/bundle state
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [addingToLinq, setAddingToLinq] = useState<{
+    id: string;
+    name: string;
+    childIds: string[];
+  } | null>(null);
+  const [linqNameModal, setLinqNameModal] = useState<{
+    visible: boolean;
+    preset: string;
+    selectedIds: string[];
+  }>({ visible: false, preset: "", selectedIds: [] });
   const [isNoteModalVisible, setIsNoteModalVisible] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [selectedFile, setSelectedFile] = useState<any>(null);
@@ -1094,56 +1106,134 @@ function AppContent() {
     [bundles]
   );
 
-  const handleCreateLinq = React.useCallback(async () => {
-    const selectedIds = Array.from(selectedFiles ?? [])
-    if (selectedIds.length < 2) {
-      Alert.alert('Select at least 2 items to create a linq')
-      return
+  const handleCreateLinq = React.useCallback(() => {
+    if (addingToLinq) {
+      void confirmAddToLinq();
+      return;
     }
-
+    const selectedIds = Array.from(selectedFiles ?? []);
     const linqFiles = selectedIds
       .map((id) => fileById.get(id) ?? bundles.find((b: any) => String(b.id) === id))
       .filter(Boolean);
-    const linqTitle = deriveLinqTitleFromFiles(linqFiles);
+    const derived = selectedIds.length
+      ? deriveLinqTitleFromFiles(linqFiles)
+      : "";
+    setLinqNameModal({
+      visible: true,
+      preset: derived && derived.toLowerCase() !== "linq" ? derived : "",
+      selectedIds,
+    });
+  }, [addingToLinq, selectedFiles, fileById, bundles]);
 
-    try {
-      // Always local-first: works offline; outbox resolves child opt- ids after uploads sync
-      const localBundleId = `opt-linq-${Date.now()}`
-      await upsertBundle({
-        id: localBundleId,
-        name: linqTitle,
-        type: 'Link',
-        created_at: new Date().toISOString(),
-        creator: email ?? null,
-        child_ids: JSON.stringify(selectedIds),
-        dirty: 1,
-        deleted: 0,
-      })
-      await enqueue({ op: 'create_bundle', localBundleId, childLocalIds: selectedIds })
-
-      const syntheticBundle = {
-        id: localBundleId,
-        name: linqTitle,
-        type: 'Link',
-        typeColor: colorFromCategory('Link'),
-        bundledFileIds: selectedIds,
-        bundledUrls: linqFiles.map((f: any) => f?.url).filter(Boolean),
-        files: linqFiles,
-        content: `linq containing ${linqFiles.length} file(s)`,
-        createdAt: new Date().toISOString(),
-        creator: email ?? '',
-        dirty: 1,
+  const confirmCreateLinq = React.useCallback(
+    async (folderName: string) => {
+      const selectedIds = linqNameModal.selectedIds;
+      const name = String(folderName ?? "").trim().slice(0, 80) || "Untitled linq";
+      setLinqNameModal({ visible: false, preset: "", selectedIds: [] });
+      const linqFiles = selectedIds
+        .map((id) => fileById.get(id) ?? bundles.find((b: any) => String(b.id) === id))
+        .filter(Boolean);
+      try {
+        const localBundleId = `opt-linq-${Date.now()}`;
+        await upsertBundle({
+          id: localBundleId,
+          name,
+          type: "Link",
+          created_at: new Date().toISOString(),
+          creator: email ?? null,
+          child_ids: JSON.stringify(selectedIds),
+          dirty: 1,
+          deleted: 0,
+        });
+        await enqueue({
+          op: "create_bundle",
+          localBundleId,
+          childLocalIds: selectedIds,
+        });
+        const syntheticBundle = {
+          id: localBundleId,
+          name,
+          type: "Link",
+          typeColor: colorFromCategory("Link"),
+          bundledFileIds: selectedIds,
+          bundledUrls: linqFiles.map((f: any) => f?.url).filter(Boolean),
+          files: linqFiles,
+          content: `linq containing ${linqFiles.length} file(s)`,
+          createdAt: new Date().toISOString(),
+          creator: email ?? "",
+          dirty: 1,
+        };
+        setBundles((prev) => [syntheticBundle, ...prev]);
+        setSelectedFiles(new Set());
+        bumpFileListScrollTop();
+        markLocalChangePending();
+      } catch (err: any) {
+        console.error("Create Linq failed:", err);
+        Alert.alert("Error", err?.message ?? "Failed to create linq");
       }
-      setBundles((prev) => [syntheticBundle, ...prev])
-      setSelectedFiles(new Set())
-      bumpFileListScrollTop()
-      // Do not force immediate sync after creating a linq; let 1-min timer/manual sync handle it.
-      markLocalChangePending()
+    },
+    [linqNameModal.selectedIds, fileById, email, bundles, bumpFileListScrollTop]
+  );
+
+  const confirmAddToLinq = React.useCallback(async () => {
+    if (!addingToLinq) return;
+    const targetId = String(addingToLinq.id);
+    const existing = new Set(
+      (addingToLinq.childIds ?? []).map((id) => String(id))
+    );
+    const picked = Array.from(selectedFiles ?? [])
+      .map((id) => String(id))
+      .filter((id) => id && id !== targetId && !existing.has(id));
+    const merged = [...existing, ...picked];
+    try {
+      await updateBundleChildIds(targetId, merged);
+      if (picked.length > 0 && !targetId.startsWith("opt-")) {
+        await enqueue({
+          op: "add_to_bundle",
+          bundleId: targetId,
+          childLocalIds: picked,
+        });
+        bundlesApi.invalidateBundleContentsCache(targetId);
+      }
+      const addedFiles = picked
+        .map(
+          (id) =>
+            fileById.get(id) ?? bundles.find((b: any) => String(b.id) === id)
+        )
+        .filter(Boolean);
+      setBundles((prev) =>
+        prev.map((b: any) => {
+          if (String(b.id) !== targetId) return b;
+          const prevFiles = Array.isArray(b.files) ? b.files : [];
+          const seen = new Set(prevFiles.map((f: any) => String(f.id)));
+          const nextFiles = [
+            ...prevFiles,
+            ...addedFiles.filter((f: any) => !seen.has(String(f.id))),
+          ];
+          return {
+            ...b,
+            bundledFileIds: merged,
+            files: nextFiles,
+            content: `linq containing ${nextFiles.length} file(s)`,
+          };
+        })
+      );
+      setSelectedFiles(new Set());
+      markLocalChangePending();
+      if (picked.length === 0) {
+        Alert.alert("Nothing new", "Select files that are not already in this linq.");
+        return;
+      }
+      setAddingToLinq(null);
     } catch (err: any) {
-      console.error('Create Linq failed:', err)
-      Alert.alert('Error', err?.message ?? 'Failed to create linq')
+      Alert.alert("Error", err?.message ?? "Could not add files to linq");
     }
-  }, [selectedFiles, fileById, email, bundles, bumpFileListScrollTop])
+  }, [
+    addingToLinq,
+    selectedFiles,
+    fileById,
+    bundles,
+  ]);
 
   // Derived lists — bundles first in the merge map so a Linq wins over a stray duplicate file row.
   const sortedFiles = useMemo(() => {
@@ -2169,6 +2259,7 @@ const filteredFiles = useMemo(() => {
 
   // ===== Handlers =====
   const toggleFileSelection = (fileId: string) => {
+    if (addingToLinq && String(fileId) === String(addingToLinq.id)) return;
     setSelectedFiles((prev) => {
       const next = new Set(prev);
       if (next.has(fileId)) next.delete(fileId);
@@ -3377,13 +3468,47 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
         onFilterPress={() => setIsFilterVisible(true)}
         appliedFilterCount={appliedFilterCount}
         selectedFileCount={selectedFiles.size}
-        onDeleteSelected={handleBulkDeleteSelected}
+        onDeleteSelected={addingToLinq ? undefined : handleBulkDeleteSelected}
         isDeletingFiles={isDeletingFiles}
         syncStatus={syncStatus}
         downloadProgress={downloadProgress}
         hasPendingLocalChanges={hasPendingLocalChanges}
         onSyncPress={triggerSync}
       />
+
+      {addingToLinq ? (
+        <View className="px-6 pb-2">
+          <View className="bg-card-bg rounded-lg px-3 py-2 flex-row items-center">
+            <Text
+              className="text-white flex-1 mr-2"
+              numberOfLines={1}
+            >
+              Adding to {addingToLinq.name}
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setAddingToLinq(null);
+                setSelectedFiles(new Set());
+              }}
+              style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel adding to linq"
+            >
+              <Text className="text-gray-400 font-semibold">Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => void confirmAddToLinq()}
+              style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Add selected files to linq"
+            >
+              <Text style={{ color: "#D7827E", fontWeight: "700" }}>
+                Add{selectedFiles.size > 0 ? ` ${selectedFiles.size}` : ""}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
 
       <FileList
         files={filteredFiles ?? []}
@@ -3415,6 +3540,15 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
           setNoteText("");
         }}
         onSave={handleNoteSave}
+      />
+
+      <NameLinqModal
+        visible={linqNameModal.visible}
+        initialName={linqNameModal.preset}
+        onCancel={() =>
+          setLinqNameModal({ visible: false, preset: "", selectedIds: [] })
+        }
+        onSave={(name) => void confirmCreateLinq(name)}
       />
 
       <FileDetailModal
@@ -3461,6 +3595,39 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
         }}
         onExtractContents={handleExtractContents}
         fetchUrl={fetchUrl}
+        onAddFiles={() => {
+          if (!selectedBundle?.id) return;
+          const childIds = Array.isArray(selectedBundle.bundledFileIds)
+            ? selectedBundle.bundledFileIds.map((id: string) => String(id))
+            : [];
+          setAddingToLinq({
+            id: String(selectedBundle.id),
+            name: String(selectedBundle.name ?? "linq"),
+            childIds,
+          });
+          setSelectedFiles(new Set());
+          setIsBundleDetailVisible(false);
+        }}
+        onRename={async (nextName: string) => {
+          const id = String(selectedBundle?.id ?? "").trim();
+          const name = String(nextName ?? "").trim().slice(0, 80);
+          if (!id || !name) return;
+          try {
+            await updateBundleName(id, name);
+            setSelectedBundle((prev: any) => (prev ? { ...prev, name } : prev));
+            setBundles((prev) =>
+              prev.map((b: any) =>
+                String(b.id) === id ? { ...b, name } : b
+              )
+            );
+            if (!id.startsWith("opt-")) {
+              await enqueue({ op: "rename_bundle", bundleId: id, name });
+              markLocalChangePending();
+            }
+          } catch (e: any) {
+            Alert.alert("Error", e?.message ?? "Could not rename linq");
+          }
+        }}
       />
 
       <CameraModal

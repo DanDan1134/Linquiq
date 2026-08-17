@@ -398,8 +398,15 @@ export async function resolveChildIdsForBundle(
 
 // ── Bundles ──────────────────────────────────────────────────────────────
 
-/** Return all non-deleted bundles from SQLite. */
-export async function getAllBundles(): Promise<LocalBundle[]> {
+/** Return one bundle by id, or null. */
+export async function getBundleById(id: string): Promise<LocalBundle | null> {
+  const db = getDb();
+  const row = await db.getFirstAsync<BundleRow>(
+    'SELECT * FROM bundles WHERE id = ? AND deleted = 0',
+    [String(id)]
+  );
+  return row ? rowToBundle(row) : null;
+}
   const db = getDb();
   const t = track('READ LINQS');
   const rows = await db.getAllAsync<BundleRow>(

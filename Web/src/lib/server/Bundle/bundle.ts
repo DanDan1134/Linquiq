@@ -5,33 +5,32 @@ import type { FileData } from "../../Types/Types";
 import { linkFiles } from "../linkFiles";
 import { isFileOwner } from "../getFileOwnership";
 
-const Bundle = async (file_ids: string[]) => {
+const Bundle = async (file_ids: string[], name?: string) => {
     const { userId } = await auth();
 
     if (!userId) {
         throw new Error("Unauthorized");
     }
 
-    if (!Array.isArray(file_ids) || file_ids.length === 0) {
-        throw new Error("Bad request");
-    }
+    const ids = Array.isArray(file_ids) ? file_ids : [];
+    const folderName = String(name ?? "").trim().slice(0, 80) || "Untitled linq";
 
-    for (const fileId of file_ids) {
+    for (const fileId of ids) {
         if (typeof fileId !== "string" || !(await isFileOwner(fileId, userId))) {
             throw new Error("Forbidden");
         }
     }
 
-    const newBunde: FileData = {
+    const newBundle: FileData = {
         owner_id: userId,
         creator_id: userId,
-        name: "Bundle",
-        type: "bundle",
+        name: folderName,
+        type: "Link",
     };
 
-    const createdEntries = await createFile([newBunde], userId);
-
-    const links = await linkFiles(file_ids, createdEntries[0].id, userId);
+    const createdEntries = await createFile([newBundle], userId);
+    const links =
+        ids.length > 0 ? await linkFiles(ids, createdEntries[0].id, userId) : [];
 
     return {
         bundle: createdEntries[0],

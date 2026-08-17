@@ -5,6 +5,8 @@ import type { FileData } from "@/lib/Types/Types";
 import { linkFiles } from "@/lib/server/linkFiles";
 import { isFileOwner } from "@/lib/server/getFileOwnership";
 
+const MAX_NAME = 80;
+
 export async function POST(request: NextRequest) {
     const { userId } = await auth();
 
@@ -19,18 +21,9 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    const { file_ids } = await request.json();
-
-    if (!Array.isArray(file_ids) || file_ids.length === 0) {
-        return NextResponse.json(
-            {
-                okay: false,
-                error: "Bad request",
-                message: "file_ids must be a non-empty array",
-            },
-            { status: 400 }
-        );
-    }
+    const body = await request.json().catch(() => ({}));
+    const file_ids = Array.isArray(body?.file_ids) ? body.file_ids : [];
+    const folderName = String(body?.name ?? "").trim().slice(0, MAX_NAME) || "Untitled linq";
 
     for (const fileId of file_ids) {
         if (typeof fileId !== "string" || !(await isFileOwner(fileId, userId))) {
@@ -45,21 +38,22 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    const newBunde: FileData = {
+    const newBundle: FileData = {
         owner_id: userId,
         creator_id: userId,
-        name: "Bundle",
-        type: "bundle",
+        name: folderName,
+        type: "Link",
     };
 
-    const createdEntries = await createFile([newBunde], userId);
-
-    const links = await linkFiles(file_ids, createdEntries[0].id, userId);
+    const createdEntries = await createFile([newBundle], userId);
+    const bundleId = createdEntries[0].id;
+    const links =
+        file_ids.length > 0 ? await linkFiles(file_ids, bundleId, userId) : [];
 
     return NextResponse.json(
         {
             okay: true,
-            message: "Files linked successfully",
+            message: "Linq created",
             data: {
                 bundle: createdEntries[0],
                 links: links,

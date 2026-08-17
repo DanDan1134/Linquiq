@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiDelete } from './client';
+import { apiGet, apiPost, apiPatch, apiDelete } from './client';
 import { dedupe } from '../utils/inflight';
 import { getCachedUrl, setCachedUrl } from '../utils/urlCache';
 
@@ -137,7 +137,17 @@ export async function deleteFiles(fileIds: string[]): Promise<{ okay: boolean }>
   return { okay: true };
 }
 
-/** DELETE /api/files/:file_id — matches Next.js web (one id per request). */
+/** PATCH /api/files/:id — rename a file or linq. */
+export async function renameFile(
+  fileId: string,
+  name: string
+): Promise<{ okay: boolean; name: string }> {
+  const id = encodeURIComponent(String(fileId).trim());
+  const next = String(name ?? "").trim();
+  if (!id) throw new Error("Missing file id");
+  if (!next) throw new Error("Missing name");
+  return apiPatch<{ okay: boolean; name: string }>(`/files/${id}`, { name: next });
+}
 export async function deleteFileById(
   fileId: string
 ): Promise<{ okay: boolean; message?: string }> {

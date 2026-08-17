@@ -18,11 +18,14 @@ export const createFile = async (
   const email = user.primaryEmailAddress?.emailAddress ?? "oops, no email here";
 
   for (const file of files) {
+    const typeRaw = String(file.type ?? "").toLowerCase();
+    const isLinq =
+      typeRaw === "bundle" || typeRaw === "link" || typeRaw === "linq";
     const row: typeof entryTable.$inferInsert = {
       owner_id: userId,
       creator_id: userId,
       name: file.name,
-      type: file.name.split(".").pop() || "unknown",
+      type: isLinq ? "Link" : file.name.split(".").pop() || "unknown",
       file_id: file.file_id,
       creator_email: email,
     };
