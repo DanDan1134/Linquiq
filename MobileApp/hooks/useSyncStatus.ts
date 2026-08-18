@@ -23,6 +23,7 @@ import {
 import { pendingCount } from '../db/outbox';
 import { downloadPendingContent } from '../sync/contentDownloader';
 import { logPerf } from '../utils/perfLog';
+import { devLog, logSafeWarn } from '../utils/safeLog';
 
 export type SyncStatus = 'idle' | 'syncing' | 'caching' | 'offline' | 'error';
 
@@ -97,7 +98,7 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
           );
         }
       } catch (e) {
-        console.warn('[sync] cache stage failed:', e);
+        logSafeWarn('[sync] cache stage failed', e);
       } finally {
         cacheInFlight.current = false;
         setTimeout(() => setDownloadProgress(null), 1_200);
@@ -118,7 +119,7 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
       setStatus('offline');
       // Offline: serve whatever is already in SQLite so the UI isn't empty.
       const offT = Date.now();
-      console.log('[sync] offline · reading SQLite only');
+      devLog('[sync] offline · reading SQLite only');
       try {
         const files = await getAllFiles();
         const bundles = await getAllBundles();
@@ -138,7 +139,7 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
         }
         return snapshot;
       } catch (e) {
-        console.warn('[sync] SQLite offline read failed:', e);
+        logSafeWarn('[sync] SQLite offline read failed', e);
         return null;
       }
     }
@@ -182,13 +183,13 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
         setDownloadProgress(null);
         setStatus('idle');
         if (__DEV__) {
-          console.log('[sync] cache stage skipped · no changed ids and no pending cache rows');
+          devLog('[sync] cache stage skipped · no changed ids and no pending cache rows');
         }
       }
 
       return result;
     } catch (err) {
-      console.warn('[sync] push+pull failed:', (err as any)?.message ?? err);
+      logSafeWarn('[sync] push+pull failed', err);
       setStatus('error');
       // Reset to idle after 10s so the error icon doesn't stay forever
       setTimeout(() => setStatus((s) => (s === 'error' ? 'idle' : s)), 10_000);

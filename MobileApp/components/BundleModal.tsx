@@ -19,6 +19,7 @@ import {
   Modal,
   TextInput,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 // @ts-ignore - Slider component from @react-native-community/slider
 import Slider from "@react-native-community/slider";
 import { FontAwesomeIcon } from "./AppIcon";
@@ -26,6 +27,9 @@ import {
   faXmark,
   faCopy,
   faPlus,
+  faPen,
+  faChevronDown,
+  faChevronUp,
 } from "@fortawesome/free-solid-svg-icons";
 import { Audio, Video, ResizeMode, AVPlaybackStatus } from "expo-av";
 import { WebView } from "react-native-webview";
@@ -39,7 +43,9 @@ import {
   HEADER_ACTION_SEPARATOR,
   HEADER_EXPAND_TO_CLOSE_GAP,
   formatLinqCreatedDisplay,
+  getFilePreviewUrl,
 } from "../utils/helpers";
+import { logSafeError } from "../utils/safeLog";
 import { PreviewFallbackBanner } from "./PreviewFallbackBanner";
 import { OfflinePreviewNotice } from "./OfflinePreviewNotice";
 import { CollapsibleFileDetails } from "./LinqMetadataSection";
@@ -64,6 +70,7 @@ interface BundleFile {
   typeColor: string;
   url: string;
   createdAt: string;
+  date?: string;
   creator: string;
   content: string;
 }
@@ -92,6 +99,9 @@ interface BundleModalProps {
   fetchUrl?: (fileId: string) => Promise<string | null>;
   onAddFiles?: () => void;
   onRename?: (name: string) => void | Promise<void>;
+  onRenameFile?: (fileId: string, name: string) => void | Promise<string | undefined>;
+  /** Remove a child from this linq without deleting the underlying file. */
+  onRemoveFile?: (fileId: string) => void | Promise<void>;
 }
 
 //BundleModal component that displays the bundle details
@@ -105,6 +115,8 @@ export const BundleModal: React.FC<BundleModalProps> = ({
   fetchUrl,
   onAddFiles,
   onRename,
+  onRenameFile,
+  onRemoveFile,
 }) => {
   const insets = useSafeAreaInsets();
   const [overlayChildFile, setOverlayChildFile] = useState<BundleFile | null>(null);
@@ -114,6 +126,9 @@ export const BundleModal: React.FC<BundleModalProps> = ({
   const [copiedLinkFileId, setCopiedLinkFileId] = useState<string | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
+  // Per-file preview collapse. Absent/false = expanded (preview shown by default).
+  const [collapsedFileIds, setCollapsedFileIds] = useState<Record<string, boolean>>({});
+  const swipeRowRefs = useRef<Record<string, Swipeable | null>>({});
   // Keep last payload so the Modal can dismiss with visible={false} even when
   // the parent clears bundleData in the same close handler.
   const retainedBundleRef = useRef(bundleData);
@@ -124,14 +139,24 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     if (!isVisible) {
       setOverlayChildFile(null);
       setIsEditingName(false);
+      setCollapsedFileIds({});
+      swipeRowRefs.current = {};
     }
   }, [isVisible]);
+
+  useEffect(() => {
+    if (!overlayChildFile?.id) return;
+    const updated = activeBundle?.files?.find((f) => f.id === overlayChildFile.id);
+    if (updated && updated.name !== overlayChildFile.name) {
+      setOverlayChildFile(updated);
+    }
+  }, [activeBundle?.files, overlayChildFile?.id, overlayChildFile?.name]);
 
   const copyAllLinks = () => {
     if (!activeBundle) return;
     try {
       const allUrls = (activeBundle.files ?? [])
-        .map((f) => `${API_BASE}/preview/${f.id}`)
+        .map((f) => getFilePreviewUrl(f.id))
         .filter(Boolean)
         .join("\n");
       const fallback = (activeBundle.bundledUrls ?? []).join("\n");
@@ -144,7 +169,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
       setCopyUrlsShellFlash(true);
       setTimeout(() => setCopyUrlsShellFlash(false), 2000);
     } catch (err) {
-      console.error("Failed to copy to clipboard:", err);
+      logSafeError("Failed to copy to clipboard", err);
     }
   };
 
@@ -165,8 +190,12 @@ export const BundleModal: React.FC<BundleModalProps> = ({
         }, 2000);
       }
     } catch (err) {
-      console.error("Failed to copy to clipboard:", err);
+      logSafeError("Failed to copy to clipboard", err);
     }
+  };
+
+  const toggleFileCollapsed = (fileId: string) => {
+    setCollapsedFileIds((prev) => ({ ...prev, [fileId]: !prev[fileId] }));
   };
 
   // Simple in-modal audio player state (one-at-a-time)
@@ -188,11 +217,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
 
   const copyUrlChipStyle = {
     height: HEADER_ACTION_CHIP_HEIGHT,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.22)",
-    backgroundColor: "rgba(255, 255, 255, 0.1)",
-    paddingHorizontal: 10,
+    paddingHorizontal: 4,
     justifyContent: "center" as const,
     alignItems: "center" as const,
   } as const;
@@ -507,7 +532,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
         await audioSound.setPositionAsync(value);
         setAudioProgressMs((prev) => ({ ...prev, [fileId]: value }));
       } catch (err) {
-        console.error("Failed to seek audio", err);
+        logSafeError("Failed to seek audio", err);
       }
     }
   };
@@ -573,7 +598,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
         }
       }
     } catch (err) {
-      console.error("Failed to toggle audio playback", err);
+      logSafeError("Failed to toggle audio playback", err);
       Alert.alert("Error", "Failed to play this audio file.");
     } finally {
       setIsAudioLoading(false);
@@ -618,6 +643,25 @@ export const BundleModal: React.FC<BundleModalProps> = ({
 
   if (!activeBundle) return null;
 
+  // Nested linqs have no inline preview of their own — only real files count
+  // toward "collapse all / expand all".
+  const previewableFiles = (activeBundle?.files ?? []).filter(
+    (f) => !isNestedBundle(f)
+  );
+  const allPreviewsCollapsed =
+    previewableFiles.length > 0 &&
+    previewableFiles.every((f) => collapsedFileIds[f.id]);
+
+  const toggleAllPreviews = () => {
+    if (allPreviewsCollapsed) {
+      setCollapsedFileIds({});
+      return;
+    }
+    const next: Record<string, boolean> = {};
+    for (const f of previewableFiles) next[f.id] = true;
+    setCollapsedFileIds(next);
+  };
+
   return (
     // === BundleModal Overlay Container ===
     <Modal
@@ -628,20 +672,23 @@ export const BundleModal: React.FC<BundleModalProps> = ({
       supportedOrientations={["portrait", "landscape"]}
     >
     <View
-      className="flex-1"
-      style={[
-        { backgroundColor: "rgba(0,0,0,0.75)" },
+      className={`flex-1 ${bundleShellFullscreen ? "bg-background" : ""}`}
+      style={
         bundleShellFullscreen
-          ? { paddingBottom: insets.bottom }
-          : { justifyContent: "center", alignItems: "center" },
-      ]}
+          ? undefined
+          : {
+              backgroundColor: "rgba(0,0,0,0.75)",
+              justifyContent: "center",
+              alignItems: "center",
+            }
+      }
     >
       {/* === BundleModal Main Card === */}
       <View
-        className={`bg-background ${bundleShellFullscreen ? "" : "rounded-lg mx-4 w-11/12"}`}
+        className={`${bundleShellFullscreen ? "" : "bg-background rounded-lg mx-4 w-11/12"}`}
         style={
           bundleShellFullscreen
-            ? { flex: 1, width: "100%", maxHeight: "100%" }
+            ? { flex: 1, width: "100%" }
             : { height: "72%", maxHeight: "76%" }
         }
       >
@@ -696,7 +743,12 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                   );
                   setIsEditingName(true);
                 }}
-                style={{ flex: 1, minHeight: 44, justifyContent: "center" }}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  flexDirection: "row",
+                  alignItems: "center",
+                }}
                 accessibilityRole="button"
                 accessibilityLabel="Rename linq"
               >
@@ -711,26 +763,17 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                     activeBundle.contentType
                   )}
                 </Text>
+                {/* Pen icon signals the title itself is tappable to rename. */}
+                <FontAwesomeIcon
+                  icon={faPen}
+                  size={12}
+                  color="#9CA3AF"
+                  style={{ marginLeft: 8 }}
+                />
               </TouchableOpacity>
             )}
           </View>
-          <View className="flex-row items-center flex-shrink-0">
-            {onAddFiles ? (
-              <TouchableOpacity
-                onPress={onAddFiles}
-                style={{
-                  minWidth: 48,
-                  minHeight: 48,
-                  justifyContent: "center",
-                  alignItems: "center",
-                  marginRight: 4,
-                }}
-                accessibilityLabel="Add files to linq"
-                accessibilityRole="button"
-              >
-                <FontAwesomeIcon icon={faPlus} size={18} color="white" />
-              </TouchableOpacity>
-            ) : null}
+          <View className="flex-row items-center flex-shrink-0" style={{ gap: HEADER_ACTION_SEPARATOR }}>
             <TouchableOpacity
               onPress={copyAllLinks}
               style={[copyUrlChipStyle, { flexDirection: "row", alignItems: "center" }]}
@@ -743,21 +786,20 @@ export const BundleModal: React.FC<BundleModalProps> = ({
               />
               <Text
                 style={{
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: "500",
                   color: copyUrlsShellFlash ? "#86EFAC" : "#9CA3AF",
-                  marginLeft: 5,
+                  marginLeft: 4,
                 }}
               >
-                {copyUrlsShellFlash ? "Copied!" : "Copy all"}
+                {copyUrlsShellFlash ? "Copied!" : "Copy"}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={onClose}
               style={{
-                marginLeft: HEADER_ACTION_SEPARATOR,
-                minWidth: 56,
-                minHeight: 56,
+                minWidth: 48,
+                minHeight: 48,
                 justifyContent: "center",
                 alignItems: "center",
               }}
@@ -772,6 +814,10 @@ export const BundleModal: React.FC<BundleModalProps> = ({
         <ScrollView
           className="p-4"
           style={{ flex: 1 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingBottom: onAddFiles ? insets.bottom + 96 : insets.bottom + 16,
+          }}
           showsVerticalScrollIndicator={true}
         >
           {/* Top linq metadata — collapsed so the child files start near the top */}
@@ -849,11 +895,25 @@ export const BundleModal: React.FC<BundleModalProps> = ({
             )}
           </View> */}
 
-          {/* Compact folder rows — open FileDetail / nested linq on tap */}
+          {/* Folder rows — open FileDetail / nested linq on tap; files preview inline by default */}
           <View className="border-t border-gray-600 pt-3">
-            <Text className="text-gray-400 text-sm mb-2">
-              {`${activeBundle?.files?.length ?? 0} item${(activeBundle?.files?.length ?? 0) === 1 ? "" : "s"}`}
-            </Text>
+            <View className="flex-row items-center justify-between mb-2">
+              <Text className="text-gray-400 text-sm">
+                {`${activeBundle?.files?.length ?? 0} item${(activeBundle?.files?.length ?? 0) === 1 ? "" : "s"}`}
+              </Text>
+              {previewableFiles.length > 0 ? (
+                <TouchableOpacity
+                  onPress={toggleAllPreviews}
+                  style={{ minHeight: 40, paddingHorizontal: 8, justifyContent: "center" }}
+                  accessibilityRole="button"
+                  accessibilityLabel={allPreviewsCollapsed ? "Expand all previews" : "Collapse all previews"}
+                >
+                  <Text className="text-gray-400 text-xs font-medium">
+                    {allPreviewsCollapsed ? "Expand all" : "Collapse all"}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
             {!activeBundle?.files?.length ? (
               <View className="mb-3">
                 {activeBundle?.isHydratingChildren ? (
@@ -874,41 +934,423 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                 file.type,
                 (file as any).contentType
               );
-              return (
-              <TouchableOpacity
-                key={`file-${file.id}-${fileIndex}`}
-                className="bg-card-bg rounded-lg px-3 mb-2 flex-row items-center"
-                style={{ minHeight: 52 }}
-                onPress={() => {
-                  if (isNested && nestedBundleData && onNestedBundlePress) {
-                    onNestedBundlePress(nestedBundleData);
-                    return;
-                  }
-                  setOverlayChildFile(file);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${rowName}`}
-              >
-                <View
-                  className={`w-2 h-2 rounded-full ${getTypeColor(isNested ? "button-border-color" : file.typeColor)} mr-3`}
-                />
-                <Text
-                  className="text-white text-base flex-1"
-                  numberOfLines={1}
-                  style={{ flexShrink: 1 }}
+              const fileDateDisplay = formatLinqCreatedDisplay(
+                file.createdAt,
+                (file as any).date
+              );
+              const isCollapsed = Boolean(collapsedFileIds[file.id]);
+              const openThisFile = () => {
+                if (isNested && nestedBundleData && onNestedBundlePress) {
+                  onNestedBundlePress(nestedBundleData);
+                  return;
+                }
+                setOverlayChildFile(file);
+              };
+              const removeFromLinq = () => {
+                if (!onRemoveFile) return;
+                if (String(overlayChildFile?.id) === String(file.id)) {
+                  setOverlayChildFile(null);
+                }
+                setCollapsedFileIds((prev) => {
+                  const next = { ...prev };
+                  delete next[file.id];
+                  return next;
+                });
+                void onRemoveFile(file.id);
+              };
+              const renderRemoveAction = () => (
+                <TouchableOpacity
+                  onPress={removeFromLinq}
+                  style={styles.swipeRemoveAction}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${rowName} from linq`}
                 >
-                  {rowName}
-                </Text>
-                {isLoadingChild ? <View style={styles.pendingDot} /> : null}
-                <Text className="text-gray-400 text-xs ml-2">
-                  {isNested ? "linq" : String(file.type ?? "File")}
-                </Text>
-              </TouchableOpacity>
+                  <Text style={styles.swipeRemoveLabel}>Remove</Text>
+                </TouchableOpacity>
+              );
+              return (
+              <View
+                key={`file-${file.id}-${fileIndex}`}
+                className="bg-card-bg rounded-lg mb-2 overflow-hidden"
+              >
+                <Swipeable
+                  ref={(ref) => {
+                    swipeRowRefs.current[String(file.id)] = ref;
+                  }}
+                  renderRightActions={onRemoveFile ? renderRemoveAction : undefined}
+                  overshootRight={false}
+                  onSwipeableWillOpen={() => {
+                    for (const [id, ref] of Object.entries(swipeRowRefs.current)) {
+                      if (id !== String(file.id) && ref) ref.close();
+                    }
+                  }}
+                  enabled={Boolean(onRemoveFile)}
+                >
+                <View className="flex-row items-center px-3 bg-card-bg" style={{ minHeight: 52 }}>
+                  <TouchableOpacity
+                    className="flex-1 flex-row items-center"
+                    style={{ minHeight: 52 }}
+                    onPress={openThisFile}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${rowName}`}
+                  >
+                    <View
+                      className={`w-2 h-2 rounded-full ${getTypeColor(isNested ? "button-border-color" : file.typeColor)} mr-3`}
+                    />
+                    <View
+                      className="flex-1 flex-row items-center"
+                      style={{ minWidth: 0 }}
+                    >
+                      <Text
+                        className="text-white text-base"
+                        numberOfLines={1}
+                        style={{ flexShrink: 1 }}
+                      >
+                        {rowName}
+                      </Text>
+                      {fileDateDisplay ? (
+                        <Text
+                          className="text-gray-400 text-xs ml-2"
+                          numberOfLines={1}
+                          style={{ flexShrink: 0 }}
+                        >
+                          {fileDateDisplay}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                  {isLoadingChild ? <View style={styles.pendingDot} /> : null}
+                  <Text className="text-gray-400 text-xs ml-2">
+                    {isNested ? "linq" : String(file.type ?? "File")}
+                  </Text>
+                  {/* Nested linqs have nothing to preview, so no collapse toggle for them. */}
+                  {!isNested ? (
+                    <TouchableOpacity
+                      onPress={() => toggleFileCollapsed(file.id)}
+                      style={{
+                        minWidth: 40,
+                        minHeight: 48,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        isCollapsed ? `Show ${rowName} preview` : `Hide ${rowName} preview`
+                      }
+                    >
+                      <FontAwesomeIcon
+                        icon={isCollapsed ? faChevronDown : faChevronUp}
+                        size={12}
+                        color="#9CA3AF"
+                      />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+                </Swipeable>
+
+                {/* === File Preview (shown by default, collapsible per card) === */}
+                {!isNested && !isCollapsed ? (
+                  <View className="px-3 pb-3">
+                    {isImageFile(file) ? (
+                      isOfflineImageOrPdfPreviewBlocked(
+                        isOnline,
+                        getFileLocalUri(file),
+                        true,
+                        false
+                      ) ? (
+                        <OfflinePreviewNotice compact />
+                      ) : getPreviewUri(file) && !imageLoadFailed[file.id] ? (
+                        <TouchableOpacity
+                          activeOpacity={0.92}
+                          onPress={() => setFullscreenImageUri(getPreviewUri(file))}
+                        >
+                          <Image
+                            source={{ uri: getPreviewUri(file) }}
+                            style={{
+                              width: "100%",
+                              aspectRatio: 1.6,
+                              borderRadius: 12,
+                            }}
+                            resizeMode="cover"
+                            onError={() =>
+                              setImageLoadFailed((prev) => ({ ...prev, [file.id]: true }))
+                            }
+                          />
+                        </TouchableOpacity>
+                      ) : isLoadingChild ? (
+                        <ChildLoadingIndicator />
+                      ) : (
+                        <PreviewFallbackBanner
+                          message={previewFixingMessage(rowName)}
+                        />
+                      )
+                    ) : isVideoFile(file) ? (
+                      getPreviewUri(file) ? (
+                        <Video
+                          source={{ uri: getPreviewUri(file) }}
+                          style={{ width: "100%", height: 190, borderRadius: 12 }}
+                          resizeMode={ResizeMode.CONTAIN}
+                          useNativeControls
+                        />
+                      ) : isLoadingChild ? (
+                        <ChildLoadingIndicator />
+                      ) : (
+                        <PreviewFallbackBanner
+                          message={previewFixingMessage(rowName)}
+                        />
+                      )
+                    ) : isPdfFile(file) ? (
+                      (() => {
+                        const fileLocalUri = getFileLocalUri(file);
+                        if (
+                          isOfflineImageOrPdfPreviewBlocked(
+                            isOnline,
+                            fileLocalUri,
+                            false,
+                            true
+                          )
+                        ) {
+                          return <OfflinePreviewNotice compact />;
+                        }
+                        const inlinePdfUri = getInlinePdfUri(file);
+                        if (!inlinePdfUri) {
+                          return (
+                            <View>
+                              {isLoadingChild ? (
+                                <ChildLoadingIndicator />
+                              ) : (
+                                <PreviewFallbackBanner
+                                  message={previewFixingMessage(rowName)}
+                                />
+                              )}
+                              <TouchableOpacity
+                                onPress={() => void handleOpenDocumentFile(file)}
+                                disabled={!getOpenInTabTarget(file)}
+                                style={{
+                                  backgroundColor: "#3B82F6",
+                                  paddingVertical: 10,
+                                  paddingHorizontal: 14,
+                                  borderRadius: 8,
+                                  minHeight: 52,
+                                  justifyContent: "center",
+                                  marginTop: 8,
+                                  opacity: getOpenInTabTarget(file) ? 1 : 0.5,
+                                }}
+                              >
+                                <Text style={{ color: "#fff", fontWeight: "600", textAlign: "center" }}>
+                                  Open in Files
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        }
+                        // iOS WebView can show file:// PDFs offline; Android needs an external app when offline.
+                        const shouldShowOpenPdfFallback =
+                          (Platform.OS === "android" && !isOnline) ||
+                          Boolean(pdfTimedOut[file.id]) ||
+                          Boolean(pdfError[file.id]);
+                        if (shouldShowOpenPdfFallback) {
+                          const showAndroidOfflineHelperCopy =
+                            Platform.OS === "android" &&
+                            !isOnline &&
+                            Boolean(fileLocalUri);
+                          return (
+                            <View
+                              style={{
+                                width: "100%",
+                                minHeight: 120,
+                                borderRadius: 10,
+                                backgroundColor: "#111827",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: 14,
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: "#F9FAFB",
+                                  textAlign: "center",
+                                  lineHeight: 19,
+                                  marginBottom: 10,
+                                  fontSize: 13,
+                                }}
+                              >
+                                {showAndroidOfflineHelperCopy
+                                  ? "PDF is saved offline. Android opens local PDFs through a PDF app."
+                                  : "This PDF didn't load in the viewer. You can open it in another app."}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => void handleOpenDocumentFile(file)}
+                                style={{
+                                  backgroundColor: "#D7827E",
+                                  paddingVertical: 10,
+                                  paddingHorizontal: 14,
+                                  borderRadius: 8,
+                                  minHeight: 52,
+                                  justifyContent: "center",
+                                }}
+                              >
+                                <Text style={{ color: "#111827", fontWeight: "700" }}>
+                                  Open PDF
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        }
+                        // Direct PDF URI only — no Google viewer, no JS, no file:// access.
+                        return (
+                          <View
+                            style={{
+                              width: "100%",
+                              height: 340,
+                              borderRadius: 12,
+                              overflow: "hidden",
+                              backgroundColor: "#111",
+                            }}
+                          >
+                            <WebView
+                              source={{ uri: inlinePdfUri }}
+                              originWhitelist={["https://*", "http://*", "file://*"]}
+                              onLoadStart={() => {
+                                if (pdfTimeoutRef.current[file.id]) {
+                                  clearTimeout(pdfTimeoutRef.current[file.id]);
+                                }
+                                pdfTimeoutRef.current[file.id] = setTimeout(() => {
+                                  setPdfTimedOut((prev) => ({ ...prev, [file.id]: true }));
+                                }, 5_000);
+                                setPdfTimedOut((prev) => ({ ...prev, [file.id]: false }));
+                                setPdfError((prev) => ({ ...prev, [file.id]: null }));
+                              }}
+                              onLoadEnd={() => {
+                                if (pdfTimeoutRef.current[file.id]) {
+                                  clearTimeout(pdfTimeoutRef.current[file.id]);
+                                  delete pdfTimeoutRef.current[file.id];
+                                }
+                                setPdfTimedOut((prev) => ({ ...prev, [file.id]: false }));
+                              }}
+                              onError={(e) => {
+                                if (pdfTimeoutRef.current[file.id]) {
+                                  clearTimeout(pdfTimeoutRef.current[file.id]);
+                                  delete pdfTimeoutRef.current[file.id];
+                                }
+                                setPdfTimedOut((prev) => ({ ...prev, [file.id]: false }));
+                                setPdfError((prev) => ({
+                                  ...prev,
+                                  [file.id]: e?.nativeEvent?.description ?? "Failed to load PDF",
+                                }));
+                              }}
+                              javaScriptEnabled={false}
+                              allowFileAccess={false}
+                              scalesPageToFit
+                            />
+                          </View>
+                        );
+                      })()
+                    ) : isTextFile(file) ? (
+                      stripHtmlPreserveNewlines(String(file.content ?? "")).trim() ? (
+                        <View className="bg-gray-600 rounded-lg p-3">
+                          <Text className="text-white text-sm leading-5 whitespace-pre-line">
+                            {stripHtmlPreserveNewlines(file.content)}
+                          </Text>
+                        </View>
+                      ) : isLoadingChild ? (
+                        <ChildLoadingIndicator />
+                      ) : (
+                        <PreviewFallbackBanner
+                          message={previewFixingMessage(rowName)}
+                        />
+                      )
+                    ) : isAudioFile(file) ? (
+                      getPreviewUri(file) ? (
+                        <>
+                          <TouchableOpacity
+                            onPress={() => handleAudioToggle(file)}
+                            className={`rounded-md px-3 items-center justify-center ${playingId === file.id ? "bg-red-600" : "bg-button-outline"}`}
+                            style={styles.audioButton}
+                            accessibilityRole="button"
+                            accessibilityLabel={
+                              playingId === file.id
+                                ? "Pause recording playback"
+                                : "Play recording"
+                            }
+                            disabled={isAudioLoading}
+                          >
+                            <Text
+                              className={
+                                playingId === file.id
+                                  ? "text-white font-semibold"
+                                  : "text-black font-semibold"
+                              }
+                            >
+                              {playingId === file.id ? "Pause" : "Play"}
+                            </Text>
+                          </TouchableOpacity>
+                          {(audioTotalMs[file.id] ?? 0) > 0 && (
+                            <View style={{ marginTop: 12, marginBottom: 8 }}>
+                              <Slider
+                                style={{ width: "100%", height: 40 }}
+                                minimumValue={0}
+                                maximumValue={audioTotalMs[file.id] || 1}
+                                value={audioProgressMs[file.id] || 0}
+                                minimumTrackTintColor="#D7827E"
+                                maximumTrackTintColor="#666666"
+                                thumbTintColor="#D7827E"
+                                onValueChange={(value) =>
+                                  handleSliderValueChange(file.id, value)
+                                }
+                                onSlidingStart={handleSliderSlidingStart}
+                                onSlidingComplete={(value) =>
+                                  handleSliderSlidingComplete(file.id, value)
+                                }
+                                disabled={playingId !== file.id || isAudioLoading}
+                              />
+                            </View>
+                          )}
+                          <View style={{ marginTop: 8, alignItems: "center" }}>
+                            <Text style={{ color: "white", fontSize: 12 }}>
+                              {formatDuration(audioProgressMs[file.id])} /{" "}
+                              {formatDuration(audioTotalMs[file.id])}
+                            </Text>
+                          </View>
+                        </>
+                      ) : isLoadingChild ? (
+                        <ChildLoadingIndicator />
+                      ) : (
+                        <PreviewFallbackBanner
+                          message={previewFixingMessage(rowName)}
+                        />
+                      )
+                    ) : isLoadingChild ? (
+                      <ChildLoadingIndicator />
+                    ) : (
+                      <PreviewFallbackBanner
+                        message={previewFixingMessage(rowName)}
+                      />
+                    )}
+                  </View>
+                ) : null}
+              </View>
               );
             })}
           </View>
         </ScrollView>
       </View>
+      {onAddFiles ? (
+        <View
+          style={[styles.addFabWrap, { bottom: insets.bottom + 20 }]}
+          pointerEvents="box-none"
+        >
+          <TouchableOpacity
+            onPress={onAddFiles}
+            className="w-16 h-16 rounded-full border-2 bg-button-outline border-button-outline items-center justify-center"
+            style={styles.addFab}
+            accessibilityLabel="Add files to linq"
+            accessibilityRole="button"
+          >
+            <FontAwesomeIcon icon={faPlus} size={22} color="black" />
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <FileDetailModal
         isVisible={overlayChildFile != null}
         selectedFile={
@@ -926,6 +1368,18 @@ export const BundleModal: React.FC<BundleModalProps> = ({
         fetchUrl={fetchUrl}
         startFullscreen
         hostedInModal
+        onRename={
+          onRenameFile && overlayChildFile
+            ? async (nextName) => {
+                const storedName = await onRenameFile(overlayChildFile.id, nextName);
+                if (storedName) {
+                  setOverlayChildFile((prev) =>
+                    prev ? { ...prev, name: storedName } : prev
+                  );
+                }
+              }
+            : undefined
+        }
       />
       <FullscreenImageOverlay
         imageUri={fullscreenImageUri}
@@ -941,6 +1395,21 @@ const styles = StyleSheet.create({
   audioButton: {
     minHeight: 48,
   },
+  // Floating at the bottom center of the screen puts the add-files action
+  // within easy thumb reach, instead of a small header icon.
+  addFabWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  addFab: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 6,
+  },
   childPlaceholder: {
     height: 56,
     borderRadius: 8,
@@ -952,5 +1421,18 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     marginLeft: 8,
     backgroundColor: LINQ_LOADING_COLOR,
+  },
+  swipeRemoveAction: {
+    backgroundColor: "#B45309",
+    justifyContent: "center",
+    alignItems: "center",
+    minWidth: 88,
+    paddingHorizontal: 16,
+    minHeight: 52,
+  },
+  swipeRemoveLabel: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 14,
   },
 });

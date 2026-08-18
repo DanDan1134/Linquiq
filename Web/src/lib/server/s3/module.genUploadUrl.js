@@ -19,8 +19,7 @@ export const generateUploadUrl = async (req, res) => {
             key: fileKey,
         });
     } catch (err) {
-        console.log("Failed to generate upload URL");
-        console.log(err);
+        console.error("Failed to generate upload URL:", err?.message ?? "unknown");
         res.status(500).json({
             okay: false,
             error: "Unhandled exception",

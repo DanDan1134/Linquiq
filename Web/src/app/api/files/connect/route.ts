@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const file_ids = Array.isArray(body?.file_ids) ? body.file_ids : [];
     const folderName = String(body?.name ?? "").trim().slice(0, MAX_NAME) || "Untitled linq";
+    const clientBundleId =
+        typeof body?.bundle_id === "string" ? body.bundle_id.trim() : "";
 
     for (const fileId of file_ids) {
         if (typeof fileId !== "string" || !(await isFileOwner(fileId, userId))) {
@@ -43,6 +45,7 @@ export async function POST(request: NextRequest) {
         creator_id: userId,
         name: folderName,
         type: "Link",
+        ...(clientBundleId ? { id: clientBundleId } : {}),
     };
 
     const createdEntries = await createFile([newBundle], userId);

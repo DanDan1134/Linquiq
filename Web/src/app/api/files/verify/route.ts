@@ -10,6 +10,7 @@ import { auth } from "@clerk/nextjs/server";
 import { db } from "@/db";
 import { createFile } from "@/lib/server/createFile";
 import type { FileData } from "@/lib/Types/Types";
+import { logSafeError, logSafeWarn } from "@/lib/safeLog";
 import {
   getFileExtension,
   isAllowedFileName,
@@ -56,7 +57,7 @@ const deleteObjectQuietly = async (profileId: string, key: string) => {
       })
     );
   } catch (err) {
-    console.warn("Failed to delete orphan S3 object", key, err);
+    logSafeWarn("verify delete orphan S3 object", err);
   }
 };
 
@@ -145,7 +146,7 @@ const headObjectMeta = async (
       return { ok: false, reason: "missing" };
     }
 
-    console.log("Couldn't check objects existence");
+    logSafeError("verify headObject", err);
     throw new Error("Couldn't check objects existence");
   }
 };
@@ -341,7 +342,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(err);
+    logSafeError("verify", err);
     return NextResponse.json(
       {
         okay: false,

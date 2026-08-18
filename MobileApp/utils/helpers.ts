@@ -8,6 +8,7 @@
 import { categoryFromExt } from "./fileHelpers";
 import { API_BASE } from "../api/client";
 import * as Crypto from "expo-crypto";
+import { logSafeWarn } from "./safeLog";
 
 /** Shown when offline with no on-device copy for image/PDF inline preview (iOS + Android). */
 export const OFFLINE_PREVIEW_MESSAGE = "Can't view in offline mode";
@@ -92,13 +93,11 @@ export function isFilePreviewUrlLive(
 }
 
 /**
- * Always builds `https://…/preview/{id}` when an id exists (including pending opt- ids).
- * Used in file / linq details instead of a "link will show when served" placeholder.
+ * Shareable preview URL for display/copy. Same as getFilePreviewUrl — only real
+ * UUIDs, never legacy `opt-…` placeholders.
  */
 export function getFilePreviewUrlLabel(fileId?: string | null): string {
-  const id = String(fileId ?? "").trim();
-  if (!id) return "";
-  return `${API_BASE}/preview/${id}`;
+  return getFilePreviewUrl(fileId);
 }
 /**
  * Maps file type color strings to Tailwind CSS color classes
@@ -166,7 +165,7 @@ export const copyToClipboard = (
     setCopyPressed(true);
     setTimeout(() => setCopyPressed(false), COPY_SUCCESS_FEEDBACK_MS);
   } catch (err) {
-    console.error("Failed to copy to clipboard:", err);
+    logSafeWarn("Failed to copy to clipboard", err);
     setCopyPressed(false);
   }
 };
@@ -425,4 +424,30 @@ export function truncateNameForLog(
 export function previewFixingMessage(fileLabel: string): string {
   const label = String(fileLabel ?? "").trim() || "this file";
   return `Cant preview "${label}" at the moment, currently fixing this! :)`;
+}
+
+/** Keep user-edited child row fields (e.g. rename) when background hydration refreshes URLs. */
+export function mergePreservedChildFileRows(
+  incoming: any[] | undefined,
+  previous: any[] | undefined,
+  fields: Array<"name"> = ["name"]
+): any[] {
+  if (!Array.isArray(incoming)) return [];
+  if (!Array.isArray(previous) || previous.length === 0) return incoming;
+  const prevById = new Map(
+    previous.map((f) => [String(f?.id ?? ""), f]).filter(([id]) => id)
+  );
+  return incoming.map((row) => {
+    const prev = prevById.get(String(row?.id ?? ""));
+    if (!prev) return row;
+    let out = row;
+    for (const field of fields) {
+      const nextVal = prev[field];
+      if (nextVal != null && nextVal !== row[field]) {
+        if (out === row) out = { ...row };
+        out[field] = nextVal;
+      }
+    }
+    return out;
+  });
 }

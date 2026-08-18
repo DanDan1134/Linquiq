@@ -47,11 +47,10 @@ export function NameLinqModal({
       >
         <View style={styles.card}>
           <Text style={styles.title}>Name this linq</Text>
-          <Text style={styles.hint}>Example: 2026 conference</Text>
           <TextInput
             value={name}
             onChangeText={setName}
-            placeholder="Linq name"
+            placeholder="Optional name"
             placeholderTextColor="#9CA3AF"
             autoFocus
             maxLength={80}
@@ -72,7 +71,7 @@ export function NameLinqModal({
               style={[styles.btn, styles.saveBtn]}
               accessibilityRole="button"
             >
-              <Text style={styles.saveText}>Create</Text>
+              <Text style={styles.saveText}>linq</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -97,11 +96,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 18,
     fontWeight: "700",
-    marginBottom: 6,
-  },
-  hint: {
-    color: "#9CA3AF",
-    fontSize: 13,
     marginBottom: 12,
   },
   input: {

@@ -59,3 +59,60 @@ export async function POST(request: NextRequest) {
         { status: 200 }
     );
 }
+
+/** Remove membership links only — does not delete either entry. */
+export async function DELETE(request: NextRequest) {
+    const { userId } = await auth();
+    if (!userId) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    let body: unknown = {};
+    try {
+        body = await request.json();
+    } catch {
+        return NextResponse.json(
+            { error: "Bad request", message: "Invalid JSON" },
+            { status: 400 }
+        );
+    }
+
+    const linksArray = Array.isArray((body as { links?: unknown }).links)
+        ? ((body as { links: FileLinkRequest[] }).links ?? [])
+        : [];
+
+    if (!linksArray.length) {
+        return NextResponse.json(
+            { error: "Bad request", message: "links must be a non-empty array" },
+            { status: 400 }
+        );
+    }
+
+    for (const link of linksArray) {
+        const { file_to, file_from } = link;
+        if (typeof file_to !== "string" || typeof file_from !== "string") {
+            return NextResponse.json(
+                { error: "Bad request", message: "file_to and file_from must be strings" },
+                { status: 400 }
+            );
+        }
+
+        const ownsTo = await isFileOwner(file_to, userId);
+        const ownsFrom = await isFileOwner(file_from, userId);
+        if (!ownsTo || !ownsFrom) {
+            return NextResponse.json(
+                { error: "Forbidden", message: "You do not own one or more of the linked files" },
+                { status: 403 }
+            );
+        }
+
+        await db
+            .delete(linkTable)
+            .where(and(eq(linkTable.to_id, file_to), eq(linkTable.from_id, file_from)));
+    }
+
+    return NextResponse.json(
+        { okay: true, message: `Removed ${linksArray.length} link(s)` },
+        { status: 200 }
+    );
+}

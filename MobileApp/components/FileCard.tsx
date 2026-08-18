@@ -34,6 +34,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import "../global.css";
 import { getDisplayFileNameForUi, truncateNameForLog } from "../utils/helpers";
+import { logSafeWarn } from "../utils/safeLog";
 import { pickExtensionFromUri } from "../utils/fileHelpers";
 import {
   LIST_THUMB_CACHE_DIR,
@@ -69,6 +70,8 @@ interface FileCardProps {
   onPress: (file: FileCardFile) => void;
   onToggleSelection: (fileId: string) => void;
   getTypeColor: (color: string) => string;
+  /** Already in the target linq while add mode is active — no checkbox, dimmed row. */
+  selectionLocked?: boolean;
 }
 
 /** Type label shown on the right; linq rows read as "linq" regardless of source. */
@@ -84,6 +87,7 @@ const FileCardBase: React.FC<FileCardProps> = ({
   onPress,
   onToggleSelection,
   getTypeColor,
+  selectionLocked = false,
 }) => {
   const [diskThumbUri, setDiskThumbUri] = useState<string | undefined>(
     undefined,
@@ -236,7 +240,7 @@ const FileCardBase: React.FC<FileCardProps> = ({
         }
       }
     } catch (e) {
-      console.warn(
+      logSafeWarn(
         `[FileCard] thumb cache download failed · ${truncateNameForLog(file.name, 6)}`,
         e,
       );
@@ -306,27 +310,31 @@ const FileCardBase: React.FC<FileCardProps> = ({
   return (
     <View
       className="bg-card-bg rounded-lg flex-row items-center"
-      style={styles.cardContainer}
+      style={[styles.cardContainer, selectionLocked ? styles.lockedCard : undefined]}
     >
-      <TouchableOpacity
-        onPress={handleToggle}
-        delayPressIn={0}
-        activeOpacity={0.6}
-        style={styles.checkboxTouchTarget}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: isSelected }}
-        accessibilityLabel={`Select ${displayName}`}
-      >
-        <View
-          className={`w-7 h-7 items-center justify-center ${
-            isSelected ? "bg-button-outline" : "border-2 border-white"
-          }`}
+      {selectionLocked ? (
+        <View style={styles.checkboxSpacer} />
+      ) : (
+        <TouchableOpacity
+          onPress={handleToggle}
+          delayPressIn={0}
+          activeOpacity={0.6}
+          style={styles.checkboxTouchTarget}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: isSelected }}
+          accessibilityLabel={`Select ${displayName}`}
         >
-          {isSelected && (
-            <FontAwesomeIcon icon={faCheck} size={15} color="black" />
-          )}
-        </View>
-      </TouchableOpacity>
+          <View
+            className={`w-7 h-7 items-center justify-center ${
+              isSelected ? "bg-button-outline" : "border-2 border-white"
+            }`}
+          >
+            {isSelected && (
+              <FontAwesomeIcon icon={faCheck} size={15} color="black" />
+            )}
+          </View>
+        </TouchableOpacity>
+      )}
 
       <TouchableOpacity
         onPress={handleCardPress}
@@ -455,6 +463,7 @@ function areEqual(prev: FileCardProps, next: FileCardProps) {
   const b = next.file;
   return (
     prev.isSelected === next.isSelected &&
+    prev.selectionLocked === next.selectionLocked &&
     prev.onPress === next.onPress &&
     prev.onToggleSelection === next.onToggleSelection &&
     a.id === b.id &&
@@ -481,6 +490,13 @@ const styles = StyleSheet.create({
     height: FILE_CARD_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
+  },
+  checkboxSpacer: {
+    width: 52,
+    height: FILE_CARD_HEIGHT,
+  },
+  lockedCard: {
+    opacity: 0.42,
   },
   cardOpenTarget: {
     flex: 1,

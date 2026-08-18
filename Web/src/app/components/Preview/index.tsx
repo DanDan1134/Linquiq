@@ -61,7 +61,6 @@ export const Preview = () => {
     useEffect(()=>{
 
         const GetFileUrl = async (file: File) => {
-            console.log(file)
             const file_url = await getFileUrl(file, false);
             const file_type = getFileType(file.type);
             SetFileUrl(file_url)
@@ -95,7 +94,6 @@ export const Preview = () => {
                 File not Found or something else when wrong...sorrry!
             </div>)
         }
-        console.log(fileType)
         switch (fileType){
             case "Document": {
                 const entry = fileUrl[0].data as { id?: string; name?: string; type?: string } | null

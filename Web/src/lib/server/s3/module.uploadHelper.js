@@ -31,7 +31,7 @@ const uploadHelper = async (req, res) => {
             keys: keys           
         });
     } catch (err) {
-        console.log(err)
+        console.error("uploadHelper failed:", err?.message ?? "unknown")
         return res.status(500).json({
             okay: false,
             error: "Internal server error",

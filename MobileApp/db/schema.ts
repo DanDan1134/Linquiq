@@ -117,7 +117,7 @@ export type BundleRow = {
 
 export type OutboxRow = {
   id: number;
-  op: 'upload_file' | 'upload_blob' | 'delete' | 'create_bundle' | 'add_to_bundle' | 'rename_bundle';
+  op: 'upload_file' | 'upload_blob' | 'delete' | 'create_bundle' | 'add_to_bundle' | 'remove_from_bundle' | 'rename_bundle' | 'rename_file';
   payload: string; // JSON string
   retries: number;
   created_at: number;

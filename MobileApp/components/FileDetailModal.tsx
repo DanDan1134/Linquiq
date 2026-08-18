@@ -9,14 +9,16 @@ import {
   Image,
   Platform,
   Alert,
+  Clipboard,
   Dimensions,
   StyleSheet,
   Modal,
+  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import { FontAwesomeIcon } from "./AppIcon";
-import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faXmark, faCopy, faPen } from "@fortawesome/free-solid-svg-icons";
 import { Audio, AVPlaybackStatus } from "expo-av";
 import { useVideoPlayer, VideoView } from "expo-video";
 import {
@@ -27,6 +29,7 @@ import {
   previewFixingMessage,
   formatLinqCreatedDisplay,
 } from "../utils/helpers";
+import { logSafeError } from "../utils/safeLog";
 import { PreviewFallbackBanner } from "./PreviewFallbackBanner";
 import { OfflinePreviewNotice } from "./OfflinePreviewNotice";
 import { CollapsibleFileDetails } from "./LinqMetadataSection";
@@ -51,6 +54,7 @@ type FileDetailModalProps = {
    * everywhere until the app restarts) — see BundleModal's nested usage.
    */
   hostedInModal?: boolean;
+  onRename?: (name: string) => void | Promise<void>;
 };
 
 // Strip HTML to plain text and preserve line breaks (web app uses <p>, <br>, etc.)
@@ -110,6 +114,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
   fetchUrl,
   startFullscreen = false,
   hostedInModal = false,
+  onRename,
 }) => {
   // ⚠️ Do NOT return before hooks; decide rendering after hooks run.
   const hidden = !isVisible || !selectedFile;
@@ -130,6 +135,9 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
   const [hydratedRemoteUrl, setHydratedRemoteUrl] = useState<string | undefined>(
     undefined
   );
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
   const displayMediaUri: string | undefined = (() => {
     const primary = fileUrl && String(fileUrl).trim() !== "" ? fileUrl : undefined;
     if (primary) return primary;
@@ -145,13 +153,11 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     typeLabel === "link" ||
     typeLabel === "bundle" ||
     typeLabel === "linq";
-  const headerTitle = bundleLikeRow
-    ? getDisplayFileNameForUi(
-        selectedFile?.name,
-        selectedFile?.type,
-        selectedFile?.contentType
-      )
-    : String(selectedFile?.type ?? "File");
+  const headerTitle = getDisplayFileNameForUi(
+    selectedFile?.name,
+    selectedFile?.type,
+    selectedFile?.contentType
+  );
 
   // Derive extension hints (use displayMediaUri so extension works with preview-only URLs)
   const urlExt = (() => {
@@ -392,7 +398,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
         }
       }
     } catch (err) {
-      console.error("Failed to toggle audio playback", err);
+      logSafeError("Failed to toggle audio playback", err);
       Alert.alert("Error", "Failed to play this audio file.");
     } finally {
       setIsAudioLoading(false);
@@ -414,7 +420,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       await audioSound.setPositionAsync(valueMs);
       setAudioProgressMs(valueMs);
     } catch (err) {
-      console.error("Failed to seek audio", err);
+      logSafeError("Failed to seek audio", err);
     }
   };
 
@@ -485,8 +491,15 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       : Boolean(isVisible && startFullscreen);
 
   useEffect(() => {
-    if (!isVisible) setFullscreenImageUri(null);
-  }, [isVisible, selectedFile?.id]);
+    if (!isVisible) {
+      setIsEditingName(false);
+      setFullscreenImageUri(null);
+    }
+  }, [isVisible]);
+
+  useEffect(() => {
+    setIsEditingName(false);
+  }, [selectedFile?.id]);
 
   useEffect(() => {
     if (!isVisible || !isImagePreview) return;
@@ -583,6 +596,17 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
 
   const showHeaderViewEntry = !contentFullscreen && canOpenDocument;
 
+  const previewLink = getFilePreviewUrl(selectedFile?.id);
+
+  const canCopyLink = Boolean(previewLink);
+
+  const handleCopyLink = () => {
+    if (!previewLink) return;
+    Clipboard.setString(previewLink);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
   const offlineImageOrPdfBlocked = isOfflineImageOrPdfPreviewBlocked(
     isOnline,
     localUri,
@@ -665,21 +689,25 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
 
   const overlay = (
     <View
+      className={contentFullscreen ? "bg-background" : undefined}
       style={[
         hostedInModal
           ? { ...StyleSheet.absoluteFillObject, zIndex: 50, elevation: 50 }
           : { flex: 1 },
-        { backgroundColor: "rgba(0,0,0,0.75)" },
         contentFullscreen
-          ? { paddingBottom: insets.bottom }
-          : { justifyContent: "center", alignItems: "center" },
+          ? undefined
+          : {
+              backgroundColor: "rgba(0,0,0,0.75)",
+              justifyContent: "center",
+              alignItems: "center",
+            },
       ]}
     >
       <View
-        className={`bg-background ${contentFullscreen ? "" : "rounded-lg mx-4 w-11/12"}`}
+        className={contentFullscreen ? "" : "bg-background rounded-lg mx-4 w-11/12"}
         style={
           contentFullscreen
-            ? { flex: 1, width: "100%", maxHeight: "100%" }
+            ? { flex: 1, width: "100%" }
             : { maxHeight: "72%" }
         }
       >
@@ -696,49 +724,136 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
             <View
               className={`w-2.5 h-2.5 rounded-full ${getTypeColor(selectedFile.typeColor)} mr-2.5`}
             />
-            <Text
-              className="text-white text-lg font-semibold"
-              numberOfLines={1}
-              style={{ flexShrink: 1 }}
-            >
-              {headerTitle}
-            </Text>
+            {isEditingName ? (
+              <TextInput
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                autoFocus
+                maxLength={80}
+                style={{
+                  flex: 1,
+                  color: "#fff",
+                  fontSize: 18,
+                  fontWeight: "600",
+                  minHeight: 44,
+                }}
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  const next = String(nameDraft ?? "").trim().slice(0, 80);
+                  setIsEditingName(false);
+                  if (next && onRename) void onRename(next);
+                }}
+                onBlur={() => {
+                  const next = String(nameDraft ?? "").trim().slice(0, 80);
+                  setIsEditingName(false);
+                  if (next && onRename) void onRename(next);
+                }}
+              />
+            ) : onRename ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setNameDraft(headerTitle);
+                  setIsEditingName(true);
+                }}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  flexDirection: "row",
+                  alignItems: "center",
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Rename ${headerTitle}`}
+              >
+                <Text
+                  className="text-white text-lg font-semibold"
+                  numberOfLines={1}
+                  style={{ flexShrink: 1 }}
+                >
+                  {headerTitle}
+                </Text>
+                <FontAwesomeIcon
+                  icon={faPen}
+                  size={12}
+                  color="#9CA3AF"
+                  style={{ marginLeft: 8 }}
+                />
+              </TouchableOpacity>
+            ) : (
+              <Text
+                className="text-white text-lg font-semibold"
+                numberOfLines={1}
+                style={{ flexShrink: 1 }}
+              >
+                {headerTitle}
+              </Text>
+            )}
           </View>
 
-          {/* Always the same X, same slot, same size — never swaps icon or side
-              based on fullscreen state, so the button never appears to move. */}
-          <TouchableOpacity
-            onPress={() => {
-              if (!contentFullscreen) {
-                onClose();
-                return;
+          <View className="flex-row items-center flex-shrink-0" style={{ gap: 14 }}>
+            {canCopyLink ? (
+              <TouchableOpacity
+                onPress={handleCopyLink}
+                style={styles.copyLinkButton}
+                accessibilityLabel="Copy file link"
+                accessibilityRole="button"
+              >
+                <FontAwesomeIcon
+                  icon={faCopy}
+                  size={13}
+                  color={linkCopied ? "#86EFAC" : "#9CA3AF"}
+                />
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "500",
+                    color: linkCopied ? "#86EFAC" : "#9CA3AF",
+                    marginLeft: 4,
+                  }}
+                >
+                  {linkCopied ? "Copied!" : "Copy"}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {/* Always the same X, same slot, same size — never swaps icon or side
+                based on fullscreen state, so the button never appears to move. */}
+            <TouchableOpacity
+              onPress={() => {
+                if (!contentFullscreen) {
+                  onClose();
+                  return;
+                }
+                if (startFullscreen || !hostedInModal) {
+                  onClose();
+                  return;
+                }
+                setFullscreenOverride(false);
+              }}
+              style={styles.headerButton}
+              accessibilityLabel={
+                !contentFullscreen
+                  ? "Close file details"
+                  : startFullscreen
+                    ? "Back to linq"
+                    : !hostedInModal
+                      ? "Close file details"
+                      : "Back to file preview"
               }
-              if (startFullscreen || !hostedInModal) {
-                onClose();
-                return;
-              }
-              setFullscreenOverride(false);
-            }}
-            style={styles.headerButton}
-            accessibilityLabel={
-              !contentFullscreen
-                ? "Close file details"
-                : startFullscreen
-                  ? "Back to linq"
-                  : !hostedInModal
-                    ? "Close file details"
-                    : "Back to file preview"
-            }
-            accessibilityRole="button"
-          >
-            <FontAwesomeIcon icon={faXmark} size={20} color="white" />
-          </TouchableOpacity>
+              accessibilityRole="button"
+            >
+              <FontAwesomeIcon icon={faXmark} size={20} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Body */}
         <ScrollView
           style={contentFullscreen ? { flex: 1 } : undefined}
-          contentContainerStyle={styles.bodyContent}
+          contentContainerStyle={[
+            styles.bodyContent,
+            contentFullscreen
+              ? { flexGrow: 1, paddingBottom: insets.bottom + 16 }
+              : undefined,
+          ]}
         >
           <View style={{ marginBottom: 10 }}>{metadataSection}</View>
 
@@ -990,6 +1105,13 @@ const styles = StyleSheet.create({
   headerButton: {
     minWidth: 48,
     minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  copyLinkButton: {
+    height: 48,
+    paddingHorizontal: 4,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },

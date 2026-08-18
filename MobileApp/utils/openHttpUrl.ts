@@ -1,3 +1,4 @@
+import { logSafeError, logSafeWarn } from "./safeLog";
 import { Alert, Linking, Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as WebBrowser from "expo-web-browser";
@@ -89,7 +90,7 @@ async function tryOpenLocalFile(
       });
       return true;
     } catch (e) {
-      console.warn("[openHttpUrl] Android VIEW content intent failed:", e);
+      logSafeWarn("[openHttpUrl] Android VIEW content intent failed", e);
       try {
         const IntentLauncher = await import("expo-intent-launcher");
         await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
@@ -99,7 +100,7 @@ async function tryOpenLocalFile(
         });
         return true;
       } catch (fallbackError) {
-        console.warn("[openHttpUrl] Android VIEW file intent failed:", fallbackError);
+        logSafeWarn("[openHttpUrl] Android VIEW file intent failed", fallbackError);
       }
     }
   }
@@ -108,7 +109,7 @@ async function tryOpenLocalFile(
     await Linking.openURL(fileUri);
     return true;
   } catch (e) {
-    console.warn("[openHttpUrl] Linking.openURL(file) failed:", e);
+    logSafeWarn("[openHttpUrl] Linking.openURL(file) failed", e);
   }
 
   return false;
@@ -203,12 +204,12 @@ export async function openHttpUrl(url: string | null | undefined): Promise<void>
     await Linking.openURL(u);
     return;
   } catch (e) {
-    console.warn("Linking.openURL failed, trying in-app browser", e);
+    logSafeWarn("Linking.openURL failed, trying in-app browser", e);
   }
   try {
     await WebBrowser.openBrowserAsync(u);
   } catch (e2) {
-    console.error(e2);
+    logSafeError("openHttpUrl fallback failed", e2);
     Alert.alert(
       "Couldn't open link",
       "Copy the URL and paste it into your browser."

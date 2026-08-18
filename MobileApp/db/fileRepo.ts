@@ -407,6 +407,9 @@ export async function getBundleById(id: string): Promise<LocalBundle | null> {
   );
   return row ? rowToBundle(row) : null;
 }
+
+/** Return all non-deleted bundles (linqs) from SQLite. */
+export async function getAllBundles(): Promise<LocalBundle[]> {
   const db = getDb();
   const t = track('READ LINQS');
   const rows = await db.getAllAsync<BundleRow>(
@@ -479,6 +482,12 @@ export async function upsertBundle(
 export async function markBundleDirty(id: string): Promise<void> {
   const db = getDb();
   await db.runAsync('UPDATE bundles SET dirty = 1 WHERE id = ?', [id]);
+}
+
+/** Update only file name (local rename before/after sync). */
+export async function updateFileName(id: string, name: string): Promise<void> {
+  const db = getDb();
+  await db.runAsync('UPDATE files SET name = ? WHERE id = ?', [name, id]);
 }
 
 /** Update only bundle name (used for mobile-only Linq title backfill). */

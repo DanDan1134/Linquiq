@@ -8,9 +8,10 @@
 
 import { uploadFile, uploadBlob } from '../api/upload';
 import { logPerf } from '../utils/perfLog';
+import { errorMessage } from '../utils/safeLog';
 import { truncateNameForLog } from '../utils/helpers';
 import { deleteFileById, renameFile } from '../api/files';
-import { createBundle, addFilesToBundle, invalidateBundleContentsCache } from '../api/bundles';
+import { createBundle, addFilesToBundle, removeFilesFromBundle, invalidateBundleContentsCache } from '../api/bundles';
 import {
   getPendingJobs,
   removeJob,
@@ -29,7 +30,7 @@ function sortOutboxJobs(jobs: OutboxRow[]): OutboxRow[] {
     if (op === 'upload_file' || op === 'upload_blob') return 0;
     if (op === 'delete') return 1;
     if (op === 'create_bundle') return 2;
-    if (op === 'add_to_bundle' || op === 'rename_bundle') return 3;
+    if (op === 'add_to_bundle' || op === 'remove_from_bundle' || op === 'rename_bundle' || op === 'rename_file') return 3;
     return 9;
   };
   return [...jobs].sort((a, b) => {
@@ -75,7 +76,9 @@ export async function drainOutbox(): Promise<void> {
         job.retries >= MAX_RETRIES &&
         payload.op !== 'create_bundle' &&
         payload.op !== 'add_to_bundle' &&
-        payload.op !== 'rename_bundle'
+        payload.op !== 'remove_from_bundle' &&
+        payload.op !== 'rename_bundle' &&
+        payload.op !== 'rename_file'
       ) {
         // Remove dead jobs so every sync does not re-log the same warning forever.
         await removeJob(job.id);
@@ -96,9 +99,13 @@ export async function drainOutbox(): Promise<void> {
               ? 'create_linq'
               : payload.op === 'add_to_bundle'
                 ? 'add_to_linq'
-                : payload.op === 'rename_bundle'
+                : payload.op === 'remove_from_bundle'
+                  ? 'remove_from_linq'
+                  : payload.op === 'rename_bundle'
                   ? 'rename_linq'
-                  : String(job.op);
+                  : payload.op === 'rename_file'
+                    ? 'rename_file'
+                    : String(job.op);
       const jobStarted = Date.now();
       try {
         await processJob(payload);
@@ -111,8 +118,12 @@ export async function drainOutbox(): Promise<void> {
         if (
           (payload.op === 'create_bundle' ||
             payload.op === 'add_to_bundle' ||
-            payload.op === 'rename_bundle') &&
-          (msg.includes('child not synced yet') || msg.includes('bundle not synced yet'))
+            payload.op === 'remove_from_bundle' ||
+            payload.op === 'rename_bundle' ||
+            payload.op === 'rename_file') &&
+          (msg.includes('child not synced yet') ||
+            msg.includes('bundle not synced yet') ||
+            msg.includes('file not synced yet'))
         ) {
           console.warn(
             `[outbox] ${payload.op} · waiting on child uploads · job#${job.id} · ${jobLabel}`
@@ -120,8 +131,7 @@ export async function drainOutbox(): Promise<void> {
           continue;
         }
         console.warn(
-          `[outbox] ${payload.op} failed · ${jobLabel} · job#${job.id} · ${Date.now() - jobStarted}ms:`,
-          (err as any)?.message ?? err
+          `[outbox] ${payload.op} failed · ${jobLabel} · job#${job.id} · ${Date.now() - jobStarted}ms · ${errorMessage(err)}`
         );
         await incrementRetry(job.id);
       }
@@ -193,7 +203,7 @@ async function processJob(payload: OutboxPayload): Promise<void> {
         childLocalIds.length > 0
           ? await resolveChildIdsForBundle(childLocalIds)
           : [];
-      const result = await createBundle(realIds, folderName);
+      const result = await createBundle(realIds, folderName, localBundleId);
       if (!result?.okay) throw new Error(result?.message ?? 'createBundle failed');
       const serverBundleId = result?.data?.bundle?.id;
       if (serverBundleId) {
@@ -217,12 +227,33 @@ async function processJob(payload: OutboxPayload): Promise<void> {
       break;
     }
 
+    case 'remove_from_bundle': {
+      const { bundleId, childLocalIds } = payload;
+      if (String(bundleId).startsWith('opt-')) {
+        throw new Error('remove_from_bundle: bundle not synced yet');
+      }
+      const realIds = await resolveChildIdsForBundle(childLocalIds);
+      if (realIds.length === 0) return;
+      await removeFilesFromBundle(bundleId, realIds);
+      invalidateBundleContentsCache(bundleId);
+      break;
+    }
+
     case 'rename_bundle': {
       const { bundleId, name } = payload;
       if (String(bundleId).startsWith('opt-')) {
         throw new Error('rename_bundle: bundle not synced yet');
       }
       await renameFile(bundleId, name);
+      break;
+    }
+
+    case 'rename_file': {
+      const { fileId, name } = payload;
+      if (String(fileId).startsWith('opt-')) {
+        throw new Error('rename_file: file not synced yet');
+      }
+      await renameFile(fileId, name);
       break;
     }
 

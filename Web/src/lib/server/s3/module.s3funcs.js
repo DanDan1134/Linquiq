@@ -51,10 +51,9 @@ const fileUpload = async (req, res) => {
         });
     } catch (err) {
         await transaction.rollback(); //Rollback the transaction since error was thrown
-        console.log(err);
+        console.error("s3funcs create failed:", err?.message ?? "unknown");
 
         if (err instanceof Sequelize.ValidationError) {
-            console.log(err.message);
             return res.status(400).json({
                 okay: false,
                 error: "Invalid input",
@@ -102,7 +101,7 @@ const fileDownload = async (req, res) => {
             url: url,
         });
     } catch (err) {
-        console.log(err);
+        console.error("fileDownload failed:", err?.message ?? "unknown");
         res.status(500).json({
             okay: false,
             error: "Unhandled exception",

@@ -27,6 +27,8 @@ type FileItem = {
 type FileListProps = {
   files: FileItem[];
   selectedFiles?: Set<string>;
+  /** Rows already in the target linq — dimmed, no checkbox. */
+  lockedFileIds?: Set<string>;
   onFilePress: (file: FileItem) => void;
   onToggleFileSelection: (fileId: string) => void;
   getTypeColor: (color: string) => string;
@@ -59,6 +61,7 @@ const EmptyState = () => (
 export const FileList: React.FC<FileListProps> = ({
   files,
   selectedFiles,
+  lockedFileIds,
   onFilePress,
   onToggleFileSelection,
   getTypeColor,
@@ -111,12 +114,13 @@ export const FileList: React.FC<FileListProps> = ({
       <FileCard
         file={item}
         isSelected={selectedFiles?.has(item.id) ?? false}
+        selectionLocked={lockedFileIds?.has(item.id) ?? false}
         onPress={onFilePress}
         onToggleSelection={onToggleFileSelection}
         getTypeColor={getTypeColor}
       />
     ),
-    [selectedFiles, onFilePress, onToggleFileSelection, getTypeColor]
+    [selectedFiles, lockedFileIds, onFilePress, onToggleFileSelection, getTypeColor]
   );
 
   const keyExtractor = useCallback((item: FileItem) => String(item.id), []);
@@ -137,7 +141,7 @@ export const FileList: React.FC<FileListProps> = ({
       className="flex-1 px-6"
       data={visibleFiles}
       keyExtractor={keyExtractor}
-      extraData={selectedFiles}
+      extraData={{ selectedFiles, lockedFileIds }}
       renderItem={renderItem}
       getItemLayout={getItemLayout}
       ItemSeparatorComponent={Separator}

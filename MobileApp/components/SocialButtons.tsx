@@ -5,6 +5,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { useSSO, useSignInWithApple } from '@clerk/clerk-expo';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import { logSafeError } from '../utils/safeLog';
 
 /** Official Google "G" logo as SVG (no PNG asset — fixes AAPT build) */
 function GoogleGLogo({ size = 20 }: { size?: number }) {
@@ -58,7 +59,7 @@ export const SocialButtons: React.FC<Props> = ({ onSuccess, onError }) => {
       }
     } catch (e) {
       onError?.(e);
-      console.error('Google SSO error', e);
+      logSafeError('Google SSO error', e);
     }
   }, [onSuccess, onError, startSSOFlow]);
 
@@ -75,7 +76,7 @@ export const SocialButtons: React.FC<Props> = ({ onSuccess, onError }) => {
     } catch (e: any) {
       if (e?.code === 'ERR_REQUEST_CANCELED') return;
       onError?.(e);
-      console.error('Apple Sign-In error', e);
+      logSafeError('Apple Sign-In error', e);
     }
   }, [onSuccess, onError, startAppleAuthenticationFlow]);
 

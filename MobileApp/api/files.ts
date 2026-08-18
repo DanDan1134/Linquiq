@@ -1,6 +1,7 @@
 import { apiGet, apiPost, apiPatch, apiDelete } from './client';
 import { dedupe } from '../utils/inflight';
 import { getCachedUrl, setCachedUrl } from '../utils/urlCache';
+import { logSafeWarn } from '../utils/safeLog';
 
 type ServerFileRow = {
   id?: string;
@@ -116,7 +117,7 @@ export async function getUrlsByIds(
         setCachedUrl(id, { url: clean });
       }
     } catch (e) {
-      console.warn("[files] batch urls failed; callers may fall back to getById", e);
+      logSafeWarn("[files] batch urls failed; callers may fall back to getById", e);
     }
   }
   return urls;
@@ -181,7 +182,7 @@ export async function getNoteContent(url: string): Promise<string | null> {
     if (res.ok) return await res.text();
     return null;
   } catch (err) {
-    console.warn('Failed to fetch note content:', err);
+    logSafeWarn('Failed to fetch note content', err);
     return null;
   }
 }

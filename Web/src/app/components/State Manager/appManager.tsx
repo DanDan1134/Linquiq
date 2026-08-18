@@ -1,5 +1,6 @@
 "use client"
 import { create } from 'zustand'
+import { idForLog, logSafeError } from '@/lib/safeLog'
 
 // Updated File type to match your Drizzle schema
 export type File = {
@@ -136,7 +137,6 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
             } else {
                 newSelectedFiles.delete(fileId);
             }
-            console.log(newSelectedFiles)
             return { selectedFiles: newSelectedFiles };
         });
     },
@@ -155,7 +155,6 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
 
     previewedFile : undefined,
     SetPreviewedFile : ( file ) => {
-        console.log(file)
         set({previewedFile : file})
     },
 
@@ -249,8 +248,6 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
 
                             const { data, message} = await fileVerResponse.json();
 
-                            console.log(data)
-
                              // Set success message based on response
                             if (message.includes("All files")) {
                                 SetError("✅ All files uploaded successfully!");
@@ -293,7 +290,7 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
            
 
         } catch (error) {
-            console.error("Upload error:", error);
+            logSafeError("upload", error);
             SetError(`❌ Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             SetLoading(false);
@@ -311,7 +308,7 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
             });
 
             if (!response.ok) {
-                console.error(`Failed to delete file with ID: ${fileId}`);
+                logSafeError(`delete file id${idForLog(fileId)}`);
             }
         }));
 

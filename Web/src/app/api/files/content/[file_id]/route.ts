@@ -1,3 +1,4 @@
+import { logSafeError } from "@/lib/safeLog";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -58,7 +59,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("content stream failed", err);
+    logSafeError("content stream", err);
     return NextResponse.json(
       { message: "Error reading file content" },
       { status: 500 }

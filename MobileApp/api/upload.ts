@@ -2,6 +2,7 @@ import { apiPost } from './client'
 import * as FileSystem from 'expo-file-system/legacy'
 import { logUploadPipeline } from '../utils/perfLog'
 import { truncateNameForLog, isShareableEntryId } from '../utils/helpers'
+import { logSafeWarn } from '../utils/safeLog'
 import {
   convertHeicToJpeg,
   isHeicSource,
@@ -203,8 +204,8 @@ export async function putToS3(
     }
     return
   } catch (streamErr) {
-    console.warn(
-      `[perf·upload] stream PUT failed · ${truncateNameForLog(String(fileUri).split('/').pop() ?? 'file')} · blob fallback:`,
+    logSafeWarn(
+      `[perf·upload] stream PUT failed · ${truncateNameForLog(String(fileUri).split('/').pop() ?? 'file')} · blob fallback`,
       streamErr
     )
   }
@@ -371,9 +372,8 @@ function resolveSyncedEntryId(
 
   if (client && isShareableEntryId(parsed) && parsed !== client) {
     // Production API likely not yet deploying clientIds — id will change until deploy.
-    console.warn(
-      '[upload] server returned a different entry id than clientId; deploy Web /files/verify clientIds support',
-      { clientId: client, serverId: parsed }
+    logSafeWarn(
+      '[upload] server returned a different entry id than clientId; deploy Web /files/verify clientIds support'
     )
   }
 

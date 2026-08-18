@@ -36,10 +36,9 @@ const createFileInDb = async (req, res) => {
         });
     } catch (err) {
         await transaction.rollback(); //Rollback the transaction since error was thrown
-        console.log(err);
+        console.error("createFileInDb failed:", err?.message ?? "unknown");
 
         if (err instanceof Sequelize.ValidationError) {
-            console.log(err.message);
             return res.status(400).json({
                 okay: false,
                 error: "Invalid input",

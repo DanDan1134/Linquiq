@@ -1,4 +1,5 @@
 // File extension sets for categorization
+import { logSafeWarn } from "./safeLog";
 const IMG_EXT = new Set(["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "heif"]);
 const AUD_EXT = new Set(["mp3", "m4a", "aac", "wav", "ogg", "caf"]);
 const VID_EXT = new Set(["mp4", "mov", "webm", "m4v", "avi", "wmv"]);
@@ -151,7 +152,7 @@ export async function convertHeicToJpeg(
       return out.uri;
     }
   } catch (error) {
-    console.warn("Failed to convert HEIC/HEIF to JPEG, using original:", error);
+    logSafeWarn("Failed to convert HEIC/HEIF to JPEG, using original", error);
     return uri;
   }
 }

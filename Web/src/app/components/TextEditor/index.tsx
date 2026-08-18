@@ -1,5 +1,6 @@
 "use client"
 
+import { logSafeError } from "@/lib/safeLog"
 import "./style.css"
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight"
 import Placeholder from "@tiptap/extension-placeholder"
@@ -69,7 +70,7 @@ export const TextEditor = () => {
                         SetActionLoading(true, "Saving note...")
                         await uploadFilesAction(fileList, null)
                     } catch (err) {
-                        console.error("Error uploading file:", err)
+                        logSafeError("note upload", err)
                     } finally {
                         SetActionLoading(false)
                     }
