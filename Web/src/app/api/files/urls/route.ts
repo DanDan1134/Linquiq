@@ -25,7 +25,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
   }
 
-  const rawIds = Array.isArray((body as any)?.ids) ? (body as any).ids : [];
+  const idsFromBody =
+    body && typeof body === "object" && "ids" in body
+      ? (body as { ids?: unknown }).ids
+      : undefined;
+  const rawIds = Array.isArray(idsFromBody) ? idsFromBody : [];
   const ids = [
     ...new Set(
       rawIds
