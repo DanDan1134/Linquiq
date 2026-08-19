@@ -2,7 +2,7 @@
  * LandingScreen Component
  * - App title & description
  * - Social SSO (Apple/Google) right here
- * - Email sign-in via Log In. New accounts are invite-only.
+ * - Email sign-in via Log In. New accounts join the Clerk waitlist.
  */
 import React from "react";
 import { View, Text, TouchableOpacity, Image, Alert } from "react-native";
@@ -63,14 +63,14 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
         <TouchableOpacity
           onPress={() =>
             Alert.alert(
-              "Invite only",
-              "This test is invite-only. Use Log In after you are approved in Clerk."
+              "Waitlist",
+              "This test is waitlist-only. Use Log In after you are approved in Clerk."
             )
           }
           className="border-2 border-button-outline rounded-md py-3 min-h-[52px] items-center justify-center"
           delayPressIn={0}
         >
-          <Text className="text-button-outline font-semibold">Ask for an invite</Text>
+          <Text className="text-button-outline font-semibold">Waitlist</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
