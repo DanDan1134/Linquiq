@@ -51,6 +51,7 @@ import { OfflinePreviewNotice } from "./OfflinePreviewNotice";
 import { CollapsibleFileDetails } from "./LinqMetadataSection";
 import { API_BASE } from "../api/client";
 import { openDocumentFromLocalOrDownload } from "../utils/openHttpUrl";
+import { pdfOriginWhitelist } from "../utils/pdfWebView";
 import { getFileById } from "../db/fileRepo";
 import { FullscreenImageOverlay } from "./FullscreenImageOverlay";
 import { FileDetailModal } from "./FileDetailModal";
@@ -1210,7 +1211,7 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                           >
                             <WebView
                               source={{ uri: inlinePdfUri }}
-                              originWhitelist={["https://*", "http://*", "file://*"]}
+                              originWhitelist={pdfOriginWhitelist(inlinePdfUri)}
                               onLoadStart={() => {
                                 if (pdfTimeoutRef.current[file.id]) {
                                   clearTimeout(pdfTimeoutRef.current[file.id]);

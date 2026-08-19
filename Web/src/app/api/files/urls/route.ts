@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
           profile_id: userId,
           key: s3Key,
           method: "GET",
-          expirationInSec: 3600,
+          expirationInSec: 300,
         });
         if (url) urls[String(row.id)] = url;
       } catch {

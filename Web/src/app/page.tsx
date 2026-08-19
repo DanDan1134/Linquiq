@@ -1,7 +1,7 @@
 import styles from "./page.module.css";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { SignedOut, SignInButton, SignUpButton } from "@clerk/nextjs";
+import { SignedOut, SignInButton } from "@clerk/nextjs";
 
 export default async function Home() {
     const { userId } = await auth();
@@ -25,11 +25,6 @@ export default async function Home() {
                                 Sign in
                             </button>
                         </SignInButton>
-                        <SignUpButton>
-                            <button type="button" className={styles.authBtn}>
-                                Sign up
-                            </button>
-                        </SignUpButton>
                     </SignedOut>
                 </div>
             </header>
@@ -50,6 +45,10 @@ export default async function Home() {
                 © 2026 GLOBIDEA LLC. Linquiq.{" "}
                 <a href="/privacy" className={styles.footerLink}>
                     Privacy Policy
+                </a>
+                {" · "}
+                <a href="/terms" className={styles.footerLink}>
+                    Tester Terms
                 </a>
             </footer>
         </div>

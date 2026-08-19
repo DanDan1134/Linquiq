@@ -2,10 +2,10 @@
  * LandingScreen Component
  * - App title & description
  * - Social SSO (Apple/Google) right here
- * - Email flows still accessible via Log In / Sign Up buttons
+ * - Email sign-in via Log In. New accounts are invite-only.
  */
 import React from "react";
-import { View, Text, TouchableOpacity, Image } from "react-native";
+import { View, Text, TouchableOpacity, Image, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import "../global.css";
@@ -13,13 +13,11 @@ import { SocialButtons } from "./SocialButtons";
 
 interface LandingScreenProps {
   onLoginPress: () => void;
-  onSignUpPress: () => void;
-  onSocialSuccess: () => void; // <-- NEW
+  onSocialSuccess: () => void;
 }
 
 export const LandingScreen: React.FC<LandingScreenProps> = ({
   onLoginPress,
-  onSignUpPress,
   onSocialSuccess,
 }) => {
   return (
@@ -63,11 +61,16 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={onSignUpPress}
+          onPress={() =>
+            Alert.alert(
+              "Invite only",
+              "This test is invite-only. Use Log In after you are approved in Clerk."
+            )
+          }
           className="border-2 border-button-outline rounded-md py-3 min-h-[52px] items-center justify-center"
           delayPressIn={0}
         >
-          <Text className="text-button-outline font-semibold">Sign Up</Text>
+          <Text className="text-button-outline font-semibold">Ask for an invite</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

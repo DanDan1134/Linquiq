@@ -25,6 +25,7 @@ interface SettingsModalProps {
   isVisible: boolean;
   onClose: () => void;
   onLogout: () => void;
+  onDeleteAccount: () => void;
   accountLabel?: string | null;
 }
 
@@ -41,11 +42,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   isVisible,
   onClose,
   onLogout,
+  onDeleteAccount,
   accountLabel,
 }) => {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const gutter = useGutter();
+
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      "Delete account?",
+      "This permanently deletes your Linquiq files and account. This cannot be undone.",
+      [
+        { text: "No", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: onDeleteAccount },
+      ]
+    );
+  };
 
   const confirmLogout = () => {
     Alert.alert(
@@ -129,6 +142,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             ]}
           >
             <Text style={styles.logoutLabel}>Log Out</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={confirmDeleteAccount}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.deleteBtn,
+              pressed && styles.logoutPressed,
+            ]}
+          >
+            <Text style={styles.deleteLabel}>Delete account</Text>
           </Pressable>
         </View>
       </View>
@@ -219,6 +243,18 @@ const styles = StyleSheet.create({
   },
   logoutLabel: {
     color: ACCENT,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  deleteBtn: {
+    minHeight: 50,
+    borderRadius: 10,
+    marginTop: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deleteLabel: {
+    color: "#F87171",
     fontSize: 16,
     fontWeight: "600",
   },

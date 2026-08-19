@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { and, eq } from "drizzle-orm";
 import { linkTable } from "@/db/schema";
 import { isFileOwner } from "@/lib/server/getFileOwnership";
+import { MAX_LINK_BATCH } from "@/lib/server/userQuota";
 
 type FileLinkRequest = {
     file_to: string;
@@ -21,6 +22,13 @@ export async function POST(request: NextRequest) {
 
     if (!Array.isArray(linksArray)) {
         return NextResponse.json({ error: "Bad request", message: "links must be an array" }, { status: 400 });
+    }
+
+    if (linksArray.length > MAX_LINK_BATCH) {
+        return NextResponse.json(
+            { error: "Bad request", message: `links must have at most ${MAX_LINK_BATCH} items` },
+            { status: 400 }
+        );
     }
 
     for (const link of linksArray) {
@@ -84,6 +92,13 @@ export async function DELETE(request: NextRequest) {
     if (!linksArray.length) {
         return NextResponse.json(
             { error: "Bad request", message: "links must be a non-empty array" },
+            { status: 400 }
+        );
+    }
+
+    if (linksArray.length > MAX_LINK_BATCH) {
+        return NextResponse.json(
+            { error: "Bad request", message: `links must have at most ${MAX_LINK_BATCH} items` },
             { status: 400 }
         );
     }

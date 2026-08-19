@@ -9,6 +9,7 @@ import {
   MAX_SEARCH_QUERY_CHARS,
   SEARCH_EXTRACT_MAX_CHARS,
 } from "@/lib/server/uploadValidation"
+import { MAX_SEARCH_CONTENT_JOBS } from "@/lib/server/userQuota"
 
 // text-searchable file extensions
 const TEXT_TYPES = ["txt", "text", "md"]
@@ -171,7 +172,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Cap concurrent S3 reads; prefer description extracts inside fetchFileText.
-    const textHits = await mapPool(textJobs, MAX_CONCURRENT_S3_READS, async (job) => {
+    const contentJobs = textJobs.slice(0, MAX_SEARCH_CONTENT_JOBS)
+    const textHits = await mapPool(contentJobs, MAX_CONCURRENT_S3_READS, async (job) => {
         if (matchedIds.has(job.file.id)) return null
         if (job.kind === "self") {
             if (!job.file.file_id) return null

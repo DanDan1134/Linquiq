@@ -31,7 +31,19 @@ const ALLOWED_TAGS = [
 
 const ALLOWED_ATTR = ["href", "target", "rel", "class"];
 
+let hooksReady = false;
+function ensureRelHook() {
+  if (hooksReady) return;
+  hooksReady = true;
+  DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+    if (node instanceof Element && node.tagName === "A") {
+      node.setAttribute("rel", "noopener noreferrer");
+    }
+  });
+}
+
 export function sanitizeHtml(dirty: string): string {
+  ensureRelHook();
   return DOMPurify.sanitize(dirty, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,

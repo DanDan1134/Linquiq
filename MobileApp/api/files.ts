@@ -157,6 +157,11 @@ export async function deleteFileById(
   return apiDelete<{ okay: boolean; message?: string }>(`/files/${id}`);
 }
 
+/** POST /api/account/delete — wipes this user's files, S3 objects, and Clerk user. */
+export async function deleteAccount(): Promise<{ okay: boolean }> {
+  return apiPost<{ okay: boolean }>("/account/delete", {});
+}
+
 export type SearchHitFile = ServerFileRow & Record<string, unknown>;
 
 export type SearchHitRow = {

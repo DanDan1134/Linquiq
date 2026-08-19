@@ -8,6 +8,7 @@ import { s3Client, bucketName } from "../../../../lib/server/s3/module.s3client"
 import { DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { deleteFile } from "@/lib/server/deleteFile";
 import { getFileUrl } from "@/lib/server/getFileUrl";
+import { sanitizeDisplayName } from "@/lib/server/uploadValidation";
 
 // TODO: if Bundle, also delete all linked files and their data.
 
@@ -61,8 +62,8 @@ export async function PATCH(
         return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
     }
 
-    const name = String((body as { name?: unknown })?.name ?? "").trim();
-    if (!name || name.length > 80) {
+    const name = sanitizeDisplayName(String((body as { name?: unknown })?.name ?? ""));
+    if (!name) {
         return NextResponse.json(
             { message: "name must be 1–80 characters" },
             { status: 400 }

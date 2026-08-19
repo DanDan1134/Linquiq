@@ -58,7 +58,7 @@ All routes below are under `/api`.
 | `POST` | `/api/files/verify` | Confirm S3 objects and create DB entries |
 | `POST` | `/api/files/link` | Link two owned files |
 | `POST` | `/api/files/connect` | Create a bundle from owned file IDs |
-| `GET` | `/api/tests` | Simple auth/health-style test route |
+| `POST` | `/api/account/delete` | Delete the signed-in user's files and Clerk account |
 
 Upload flow (high level):
 

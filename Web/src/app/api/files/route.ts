@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server"
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { entryTable, linkTable } from "@/db/schema";
@@ -19,22 +19,11 @@ function truncateDescription(value: string | null | undefined): string | null {
     return `${text.slice(0, LIST_DESCRIPTION_MAX)}…`;
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
     const { userId } = await auth();
-    const authHeader = req.headers.get("authorization");
-    const hasBearer = Boolean(authHeader?.toLowerCase().startsWith("bearer "));
 
     if (!userId) {
-        return NextResponse.json(
-            {
-                message: "Unauthorized",
-                hasBearer,
-                hint: hasBearer
-                    ? "Bearer token was sent but Clerk rejected it. Vercel CLERK_SECRET_KEY must match the same instance as the mobile publishable key; sign out/in after key changes."
-                    : "No Authorization Bearer token on the request. Mobile getToken() returned null — sign in again.",
-            },
-            { status: 401 }
-        );
+        return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
 
     const files = await db.select({

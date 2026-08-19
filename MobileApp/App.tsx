@@ -66,7 +66,7 @@ import {
   type LocalBundle,
 } from './db/fileRepo'
 import { useSyncStatus } from './hooks/useSyncStatus'
-import { saveLocal, optimisticRow } from './sync/saveLocal'
+import { saveLocal, optimisticRow, clearOfflineDir } from './sync/saveLocal'
 import { enqueue, cancelJobsForId, getOutboxReferencedIds } from './db/outbox'
 import NetInfo from '@react-native-community/netinfo'
 
@@ -90,10 +90,7 @@ import {
   ensureMediaLibraryPermission,
   resetPermissionCache,
 } from "./utils/permissions";
-import { fetchMe } from "./api/auth";
 import "./global.css";
-
-// API modules
 import { API_BASE } from "./api/client";
 import * as filesApi from "./api/files";
 import type { SearchHitRow } from "./api/files";
@@ -3505,7 +3502,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     // The home effect loads SQLite. Server sync only runs after a manual action.
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setIsLoggedIn(false);
     setEmail(undefined);
     setSelectedFiles(new Set());
@@ -3515,10 +3512,13 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     setUserFiles([]);
     setScreen("landing");
     setInitialListLoaded(false);
-    // Clear SQLite local data and in-memory caches
-    clearAllLocalData().catch((e) => logSafeWarn('clearAllLocalData failed', e));
-    clearDownloadCache().catch((e) => logSafeWarn('clearDownloadCache failed', e));
-    // Reset optimization state so the next login starts fresh
+    try {
+      await clearAllLocalData();
+      await clearDownloadCache();
+      await clearOfflineDir();
+    } catch (e) {
+      logSafeWarn("logout wipe failed", e);
+    }
     lastFingerprintRef.current = null;
     syncInFlightRef.current = false;
     hasServerDataRef.current = false;
@@ -3587,7 +3587,6 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     return (
       <LandingScreen
         onLoginPress={() => setScreen("login")}
-        onSignUpPress={() => setScreen("signup")}
         onSocialSuccess={() => handleLoginSuccess()}
       />
     );
@@ -3839,9 +3838,21 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
           try {
             await signOut();
           } finally {
-            setIsSettingsModalVisible(false); 
-            handleLogout();
+            setIsSettingsModalVisible(false);
+            await handleLogout();
           }
+        }}
+        onDeleteAccount={async () => {
+          try {
+            await filesApi.deleteAccount();
+            await signOut();
+          } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : "Could not delete account";
+            Alert.alert("Error", message);
+            return;
+          }
+          setIsSettingsModalVisible(false);
+          await handleLogout();
         }}
       />
     </SafeAreaView>

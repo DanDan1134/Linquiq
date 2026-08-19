@@ -35,6 +35,7 @@ import { OfflinePreviewNotice } from "./OfflinePreviewNotice";
 import { CollapsibleFileDetails } from "./LinqMetadataSection";
 import "../global.css";
 import { openDocumentFromLocalOrDownload } from "../utils/openHttpUrl";
+import { pdfOriginWhitelist } from "../utils/pdfWebView";
 import { FullscreenImageOverlay } from "./FullscreenImageOverlay";
 import { useNetInfo } from "@react-native-community/netinfo";
 
@@ -949,7 +950,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                 <View style={[styles.mediaFrame, { height: pdfPreviewHeight }]}>
                   <WebView
                     source={{ uri: sourceUri }}
-                    originWhitelist={["https://*", "http://*", "file://*"]}
+                    originWhitelist={pdfOriginWhitelist(sourceUri)}
                     onLoadStart={() => setPdfError(null)}
                     onError={(e) =>
                       setPdfError(
@@ -960,7 +961,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                     allowFileAccess={false}
                     scalesPageToFit
                     {...(Platform.OS === "android"
-                      ? { mixedContentMode: "always" as const }
+                      ? { mixedContentMode: "never" as const }
                       : {})}
                   />
                   {pdfError ? (

@@ -1,8 +1,9 @@
 import { clerkClient } from "@clerk/nextjs/server";
+import { and, eq, inArray } from "drizzle-orm";
 import { entryTable } from "@/db/schema";
 import { db } from "@/db";
 import type { FileData } from "../Types/Types";
-import { inArray } from "drizzle-orm";
+import { EntryIdConflictError, isUniqueViolation } from "./entryIdConflict";
 
 const CLIENT_ENTRY_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -46,16 +47,30 @@ export const createFile = async (
   try {
     return await db.insert(entryTable).values(sentFiles).returning();
   } catch (err) {
-    // Retry after a successful verify can hit unique(id) — return existing rows.
+    // Retry after a successful verify can hit unique(id) — return existing rows
+    // only when they belong to this user.
     const ids = sentFiles
       .map((f) => f.id)
       .filter((id): id is string => typeof id === "string" && id.length > 0);
     if (ids.length === 0) throw err;
-    const existing = await db
+
+    const existingOwned = await db
       .select()
       .from(entryTable)
+      .where(and(inArray(entryTable.id, ids), eq(entryTable.owner_id, userId)));
+    if (existingOwned.length === sentFiles.length) return existingOwned;
+
+    const anyRows = await db
+      .select({ id: entryTable.id, owner_id: entryTable.owner_id })
+      .from(entryTable)
       .where(inArray(entryTable.id, ids));
-    if (existing.length === sentFiles.length) return existing;
+    if (anyRows.some((row) => row.owner_id !== userId)) {
+      throw new EntryIdConflictError();
+    }
+
+    if (isUniqueViolation(err)) {
+      throw new EntryIdConflictError();
+    }
     throw err;
   }
 };

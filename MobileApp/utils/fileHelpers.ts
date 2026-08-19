@@ -127,6 +127,28 @@ export function isHeicSource(uri: string, hints?: HeicHints): boolean {
 }
 
 /**
+ * Re-encode still images so GPS/EXIF is not kept. Leaves video/audio/PDF alone.
+ */
+export async function stripImageLocation(
+  uri: string,
+  destExt?: string
+): Promise<string> {
+  const e = String(destExt ?? pickExtensionFromUri(uri, "")).replace(/^\./, "").toLowerCase();
+  if (!["jpg", "jpeg", "png", "webp", "heic", "heif"].includes(e)) {
+    return uri;
+  }
+  try {
+    const { manipulateAsync, SaveFormat } = await import("expo-image-manipulator");
+    const format = e === "png" ? SaveFormat.PNG : SaveFormat.JPEG;
+    const out = await manipulateAsync(uri, [], { compress: 0.92, format });
+    return out.uri || uri;
+  } catch (error) {
+    logSafeWarn("Failed to strip image metadata, using original", error);
+    return uri;
+  }
+}
+
+/**
  * Converts HEIC/HEIF to JPEG for PC/web compatibility and to avoid upload OOM (blob fallback).
  * Caps max width to reduce native decode memory on large photos.
  */
