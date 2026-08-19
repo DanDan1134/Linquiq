@@ -46,7 +46,7 @@ const NoteView = ({fileUrl}: {fileUrl: string}) => {
 
 
 // renders inline content for a single linked file based on its type
-const InlineContent = ({ file, url }: { file: EntryRow; url?: string }) => {
+const InlineContent = ({ file }: { file: EntryRow }) => {
     const videoRef = useRef<HTMLVideoElement>(null)
     const mediaSrc = privateFileSrc(file.id)
 
@@ -75,7 +75,7 @@ const InlineContent = ({ file, url }: { file: EntryRow; url?: string }) => {
 
 
 // card for a single linked file, showing metadata + inline content
-const LinkedFileCard = ({ file, url }: { file: EntryRow; url?: string }) => {
+const LinkedFileCard = ({ file }: { file: EntryRow }) => {
     const [copied, setCopied] = useState(false)
     const previewPath = `/preview/${file.id}`
     const previewUrl = typeof window !== "undefined"
@@ -138,7 +138,7 @@ const LinkedFileCard = ({ file, url }: { file: EntryRow; url?: string }) => {
             </div>
 
             {/* inline content preview */}
-            <InlineContent file={file} url={url} />
+            <InlineContent file={file} />
         </div>
     )
 }
@@ -156,7 +156,7 @@ const Bundle = ({ bundle_data }: { bundle_data: FileUrlResult[] | undefined }) =
         <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: "1rem" }}>
             {bundle_data?.map((item, index) => (
                 isEntryRow(item.data)
-                    ? <LinkedFileCard key={item.data.id ?? index} file={item.data} url={item.url} />
+                    ? <LinkedFileCard key={item.data.id ?? index} file={item.data} />
                     : null
             ))}
         </div>

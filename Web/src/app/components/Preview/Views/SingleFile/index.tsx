@@ -28,7 +28,6 @@ const NoteView = ({ fileUrl }: { fileUrl: string }) => {
 };
 
 export const SingleFilePreview = ({
-    fileUrl,
     fileType,
     fileId,
     fileName,
