@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { Copy, Check } from "lucide-react";
 import { sanitizeHtml } from "@/lib/client/sanitizeHtml";
 import { PrivateDocumentPreview } from "@/app/components/Preview/PrivateDocumentPreview";
+import { privateFileSrc } from "@/lib/client/privateFileSrc";
 
 const formatCreatedAt = (value: unknown) => {
     if (!value) return "Unknown"
@@ -47,7 +48,7 @@ const NoteView = ({fileUrl}: {fileUrl: string}) => {
 // renders inline content for a single linked file based on its type
 const InlineContent = ({ file, url }: { file: EntryRow; url?: string }) => {
     const videoRef = useRef<HTMLVideoElement>(null)
-    const safeUrl = typeof url === "string" && url.trim() !== "" ? url : undefined
+    const mediaSrc = privateFileSrc(file.id)
 
     switch (getFileType(file.type)) {
         case "Document":
@@ -56,18 +57,17 @@ const InlineContent = ({ file, url }: { file: EntryRow; url?: string }) => {
                     fileId={file.id}
                     fileType={file.type}
                     fileName={file.name}
-                    downloadUrl={safeUrl}
                 />
             )
         case "Image":
-            if (!safeUrl) return <div style={{ fontSize: "0.8rem", opacity: 0.6 }}>Loading...</div>
-            return <img src={safeUrl} width="100%" alt="" style={{ borderRadius: "var(--border-rad)", objectFit: "contain" }} />
+            if (!mediaSrc) return <div style={{ fontSize: "0.8rem", opacity: 0.6 }}>Loading...</div>
+            return <img src={mediaSrc} width="100%" alt="" style={{ borderRadius: "var(--border-rad)", objectFit: "contain" }} />
         case "Recording":
-            if (!safeUrl) return <div style={{ fontSize: "0.8rem", opacity: 0.6 }}>Loading...</div>
-            return <video ref={videoRef} src={safeUrl} controls width="100%" style={{ borderRadius: "var(--border-rad)" }} />
+            if (!mediaSrc) return <div style={{ fontSize: "0.8rem", opacity: 0.6 }}>Loading...</div>
+            return <video ref={videoRef} src={mediaSrc} controls width="100%" style={{ borderRadius: "var(--border-rad)" }} />
         case "Note":
-            if (!safeUrl) return <div style={{ fontSize: "0.8rem", opacity: 0.6 }}>Loading...</div>
-            return <NoteView fileUrl={safeUrl} />
+            if (!mediaSrc) return <div style={{ fontSize: "0.8rem", opacity: 0.6 }}>Loading...</div>
+            return <NoteView fileUrl={mediaSrc} />
         default:
             return null
     }

@@ -9,6 +9,7 @@ import { VerticalDiv } from "../UILayout";
 import Bundle from "./Views/Bundle";
 import { sanitizeHtml } from "@/lib/client/sanitizeHtml";
 import { PrivateDocumentPreview } from "@/app/components/Preview/PrivateDocumentPreview";
+import { privateFileSrc } from "@/lib/client/privateFileSrc";
 
 const NoteView = ({fileUrl}: {fileUrl: string}) => {
     const [fileSrc, setFileSrc] = useState<string | undefined>(undefined)
@@ -89,14 +90,25 @@ export const Preview = () => {
 
 
     const DisplayFile = () => {
-        if(!fileUrl || fileUrl[0].url === "" ){
+        const id = previewedFile?.id
+        const privateSrc = privateFileSrc(id)
+        const mediaSrc = privateSrc
+
+        if(fileType === "Bundle") {
+            if(!fileUrl || fileUrl[0].url === "") {
+                return <div>File not Found or something else when wrong...sorrry!</div>
+            }
+            return <Bundle bundle_data={fileUrl} />
+        }
+
+        if(!mediaSrc && fileType !== "Document"){
             return (<div>
                 File not Found or something else when wrong...sorrry!
             </div>)
         }
         switch (fileType){
             case "Document": {
-                const entry = fileUrl[0].data as { id?: string; name?: string; type?: string } | null
+                const entry = fileUrl?.[0]?.data as { id?: string; name?: string; type?: string } | null
                 return (
                     <div style={{
                         width : "100%",
@@ -108,7 +120,6 @@ export const Preview = () => {
                             fileId={entry?.id || previewedFile?.id}
                             fileType={previewedFile?.type || entry?.type || "pdf"}
                             fileName={previewedFile?.name || entry?.name}
-                            downloadUrl={fileUrl[0].url as string}
                         />
                     </div>
                 )
@@ -116,7 +127,7 @@ export const Preview = () => {
 
             case "Image" : {
                 return (
-                    <img src={fileUrl[0].url as string} alt="" style={{
+                    <img src={mediaSrc} alt="" style={{
                         width : "100%",
                         borderRadius : "var(--border-rad)",
                         objectFit : "contain",
@@ -127,7 +138,7 @@ export const Preview = () => {
 
             case "Recording" : {
                 return (
-                    <video src={fileUrl[0].url as string} ref={videoRef} autoPlay={true} muted={true} style={{
+                    <video src={mediaSrc} ref={videoRef} autoPlay={true} muted={true} style={{
                         width : "100%",
                         borderRadius : "var(--border-rad)",
                         objectFit : "contain",
@@ -136,20 +147,12 @@ export const Preview = () => {
                 )
             }
 
-            case "Bundle" : {
-                return (
-                    
-                    <Bundle bundle_data={fileUrl} />
-                    
-                )
-            }
-
             case "Note" : {
-                return (
+                return mediaSrc ? (
                     <>
-                        <NoteView fileUrl={fileUrl[0].url as string} />
+                        <NoteView fileUrl={mediaSrc} />
                     </>
-                )
+                ) : <div>File not Found or something else when wrong...sorrry!</div>
             }
 
             default: {

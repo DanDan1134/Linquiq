@@ -50,7 +50,6 @@ import { PreviewFallbackBanner } from "./PreviewFallbackBanner";
 import { OfflinePreviewNotice } from "./OfflinePreviewNotice";
 import { CollapsibleFileDetails } from "./LinqMetadataSection";
 import { API_BASE } from "../api/client";
-import { openDocumentFromLocalOrDownload } from "../utils/openHttpUrl";
 import { pdfOriginWhitelist } from "../utils/pdfWebView";
 import { getFileById } from "../db/fileRepo";
 import { FullscreenImageOverlay } from "./FullscreenImageOverlay";
@@ -247,17 +246,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     // Never use the HTML /preview/{id} page as an Image/WebView media source.
     if (remote && !isSitePreviewUrl(remote)) return remote;
     return "";
-  };
-
-  const getOpenInTabTarget = (file: BundleFile): string => {
-    const local = String((localUriById as Record<string, string>)[String(file?.id ?? "").trim()] ?? "")
-      .trim() || String((file as any)?.local_uri ?? "").trim();
-    if (local) return local;
-    const id = String(file?.id ?? "").trim();
-    if (id && !id.startsWith("opt-") && Number((file as any)?.dirty) !== 1) {
-      return `${API_BASE}/preview/${id}`;
-    }
-    return getPreviewUri(file);
   };
 
   const getInlinePdfUri = (file: BundleFile): string => {
@@ -604,42 +592,6 @@ export const BundleModal: React.FC<BundleModalProps> = ({
     } finally {
       setIsAudioLoading(false);
     }
-  };
-
-  const handleOpenDocumentFile = async (file: BundleFile) => {
-    const local = getFileLocalUri(file);
-    let source = "";
-    if (local) {
-      source = local;
-    } else if (!isOnline) {
-      Alert.alert("You're offline", "Connect to the internet to open this file.");
-      return;
-    } else {
-      // Always mint a fresh URL at open-time rather than reuse a cached one —
-      // presigned S3 links expire and mobile has no way to know when.
-      const id = String(file?.id ?? "").trim();
-      if (fetchUrl && id && !id.startsWith("opt-")) {
-        try {
-          source = String((await fetchUrl(id)) ?? "").trim();
-        } catch {
-          source = "";
-        }
-      }
-      if (!source) source = String(getPreviewUri(file) || "").trim();
-    }
-    if (!source) {
-      Alert.alert("File not ready", "This document link is not available yet.");
-      return;
-    }
-    await openDocumentFromLocalOrDownload({
-      sourceUri: source,
-      fileName: getDisplayFileNameForUi(
-        file?.name,
-        file?.type,
-        (file as any)?.contentType ?? file?.type
-      ),
-      contentType: (file as any)?.contentType ?? file?.type,
-    });
   };
 
   if (!activeBundle) return null;
@@ -1124,28 +1076,10 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                                   message={previewFixingMessage(rowName)}
                                 />
                               )}
-                              <TouchableOpacity
-                                onPress={() => void handleOpenDocumentFile(file)}
-                                disabled={!getOpenInTabTarget(file)}
-                                style={{
-                                  backgroundColor: "#3B82F6",
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 14,
-                                  borderRadius: 8,
-                                  minHeight: 52,
-                                  justifyContent: "center",
-                                  marginTop: 8,
-                                  opacity: getOpenInTabTarget(file) ? 1 : 0.5,
-                                }}
-                              >
-                                <Text style={{ color: "#fff", fontWeight: "600", textAlign: "center" }}>
-                                  Open in Files
-                                </Text>
-                              </TouchableOpacity>
                             </View>
                           );
                         }
-                        // iOS WebView can show file:// PDFs offline; Android needs an external app when offline.
+                        // iOS WebView can show file:// PDFs offline; Android needs network or a local viewer.
                         const shouldShowOpenPdfFallback =
                           (Platform.OS === "android" && !isOnline) ||
                           Boolean(pdfTimedOut[file.id]) ||
@@ -1172,29 +1106,13 @@ export const BundleModal: React.FC<BundleModalProps> = ({
                                   color: "#F9FAFB",
                                   textAlign: "center",
                                   lineHeight: 19,
-                                  marginBottom: 10,
                                   fontSize: 13,
                                 }}
                               >
                                 {showAndroidOfflineHelperCopy
-                                  ? "PDF is saved offline. Android opens local PDFs through a PDF app."
-                                  : "This PDF didn't load in the viewer. You can open it in another app."}
+                                  ? "PDF is saved offline. In-app preview is unavailable on Android without a network connection."
+                                  : previewFixingMessage(rowName)}
                               </Text>
-                              <TouchableOpacity
-                                onPress={() => void handleOpenDocumentFile(file)}
-                                style={{
-                                  backgroundColor: "#D7827E",
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 14,
-                                  borderRadius: 8,
-                                  minHeight: 52,
-                                  justifyContent: "center",
-                                }}
-                              >
-                                <Text style={{ color: "#111827", fontWeight: "700" }}>
-                                  Open PDF
-                                </Text>
-                              </TouchableOpacity>
                             </View>
                           );
                         }

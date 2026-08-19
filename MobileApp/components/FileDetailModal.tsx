@@ -34,7 +34,6 @@ import { PreviewFallbackBanner } from "./PreviewFallbackBanner";
 import { OfflinePreviewNotice } from "./OfflinePreviewNotice";
 import { CollapsibleFileDetails } from "./LinqMetadataSection";
 import "../global.css";
-import { openDocumentFromLocalOrDownload } from "../utils/openHttpUrl";
 import { pdfOriginWhitelist } from "../utils/pdfWebView";
 import { FullscreenImageOverlay } from "./FullscreenImageOverlay";
 import { useNetInfo } from "@react-native-community/netinfo";
@@ -235,7 +234,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       serverExt ===
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
-  const isDocumentLike = isPdfLike || isDocPreview;
   // ---- Text / Markdown content (inline body or fetch from URL) ----
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadingText, setLoadingText] = useState(false);
@@ -591,12 +589,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     ? Math.min(Math.round(winH * 0.56), 620)
     : Math.round(winH * 0.26);
 
-  // If online we can always mint a fresh URL on demand (see handleOpenDocument),
-  // so don't gate this on a possibly-stale cached URL already being present.
-  const canOpenDocument = Boolean(localUri) || isOnline;
-
-  const showHeaderViewEntry = !contentFullscreen && canOpenDocument;
-
   const previewLink = getFilePreviewUrl(selectedFile?.id);
 
   const canCopyLink = Boolean(previewLink);
@@ -616,43 +608,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
   );
 
   const headerActionIconColor = "#F9FAFB";
-
-  const handleOpenDocument = async () => {
-    if (!isDocumentLike) return;
-    if (localUri) {
-      await openDocumentFromLocalOrDownload({
-        sourceUri: localUri,
-        fileName: displayFileName,
-        contentType: String(selectedFile?.contentType ?? ""),
-      });
-      return;
-    }
-    if (!isOnline) {
-      Alert.alert("You're offline", "Connect to the internet to open this file.");
-      return;
-    }
-    // Always mint a fresh URL at open-time rather than reuse a cached one —
-    // presigned S3 links expire and mobile has no way to know when.
-    const id = String(selectedFile?.id ?? "").trim();
-    let sourceUri = "";
-    if (fetchUrl && id && !id.startsWith("opt-")) {
-      try {
-        sourceUri = String((await fetchUrl(id)) ?? "").trim();
-      } catch {
-        sourceUri = "";
-      }
-    }
-    if (!sourceUri) sourceUri = String(previewUrl ?? "").trim();
-    if (!sourceUri) {
-      Alert.alert("File not ready", "This document is still loading.");
-      return;
-    }
-    await openDocumentFromLocalOrDownload({
-      sourceUri,
-      fileName: displayFileName,
-      contentType: String(selectedFile?.contentType ?? ""),
-    });
-  };
 
   // Nested View overlay can unmount when closed. Standalone Modal must stay
   // mounted with visible={false} so iOS hit-testing is not left offset.
@@ -929,17 +884,8 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                 )}
 
               {isPdfPreview && Platform.OS === "android" && localUri && !isOnline && (
-                <View className="mb-3" style={styles.offlinePdfPanel}>
-                  <Text style={styles.offlinePdfText}>
-                    PDF is saved offline. Android opens local PDFs through a PDF app.
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => void handleOpenDocument()}
-                    style={styles.accentButton}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.accentButtonText}>Open in Files</Text>
-                  </TouchableOpacity>
+                <View className="mb-3">
+                  <OfflinePreviewNotice />
                 </View>
               )}
 
@@ -969,16 +915,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                       <Text style={styles.previewErrorText}>
                         {previewFixingMessage(displayFileName)}
                       </Text>
-                      <TouchableOpacity
-                        onPress={() => void handleOpenDocument()}
-                        disabled={!canOpenDocument}
-                        style={[
-                          styles.primaryButton,
-                          { opacity: canOpenDocument ? 1 : 0.5 },
-                        ]}
-                      >
-                        <Text style={styles.primaryButtonText}>Open in Files</Text>
-                      </TouchableOpacity>
                     </View>
                   ) : null}
                 </View>
@@ -991,18 +927,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                   <PreviewFallbackBanner
                     message={previewFixingMessage(displayFileName)}
                   />
-                  <TouchableOpacity
-                    onPress={() => void handleOpenDocument()}
-                    disabled={!canOpenDocument}
-                    style={[
-                      styles.accentButton,
-                      styles.centeredButton,
-                      { opacity: canOpenDocument ? 1 : 0.45 },
-                    ]}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.accentButtonText}>Open in Files</Text>
-                  </TouchableOpacity>
                 </View>
               )}
 
