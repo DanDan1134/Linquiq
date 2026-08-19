@@ -8,6 +8,7 @@ import {
   View,
   Text,
   Pressable,
+  TouchableOpacity,
   Modal,
   StyleSheet,
   useWindowDimensions,
@@ -132,28 +133,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </Text>
           </View>
 
-          {/* Log out */}
-          <Pressable
+          <TouchableOpacity
             onPress={confirmLogout}
             accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.logoutBtn,
-              pressed && styles.logoutPressed,
-            ]}
+            accessibilityLabel="Log Out"
+            activeOpacity={0.8}
+            className="min-h-[50px] rounded-[10px] border-2 border-button-outline items-center justify-center"
           >
-            <Text style={styles.logoutLabel}>Log Out</Text>
-          </Pressable>
+            <Text className="text-button-outline text-base font-semibold">
+              Log Out
+            </Text>
+          </TouchableOpacity>
 
-          <Pressable
+          <TouchableOpacity
             onPress={confirmDeleteAccount}
             accessibilityRole="button"
-            style={({ pressed }) => [
-              styles.deleteBtn,
-              pressed && styles.logoutPressed,
-            ]}
+            accessibilityLabel="Delete account"
+            activeOpacity={0.8}
+            className="min-h-[50px] mt-7 rounded-[10px] border-2 border-[#F87171] items-center justify-center"
           >
-            <Text style={styles.deleteLabel}>Delete account</Text>
-          </Pressable>
+            <Text className="text-[#F87171] text-base font-semibold">
+              Delete account
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     </Modal>
@@ -229,33 +231,5 @@ const styles = StyleSheet.create({
   },
   invisible: {
     opacity: 0,
-  },
-  logoutBtn: {
-    minHeight: 50,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: ACCENT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoutPressed: {
-    opacity: 0.8,
-  },
-  logoutLabel: {
-    color: ACCENT,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  deleteBtn: {
-    minHeight: 50,
-    borderRadius: 10,
-    marginTop: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  deleteLabel: {
-    color: "#F87171",
-    fontSize: 16,
-    fontWeight: "600",
   },
 });
