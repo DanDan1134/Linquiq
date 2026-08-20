@@ -356,8 +356,17 @@ export async function resolveSyncedFileId(
   if (!sid) return null;
 
   const db = getDb();
+  const syncedId = (
+    row: { id: string; dirty: number; synced_at: number | null } | null
+  ): string | null => {
+    if (!row?.id) return null;
+    if (String(row.id).startsWith('opt-')) return null;
+    if (row.dirty === 1 && !row.synced_at) return null;
+    return row.id;
+  };
+
   if (sid.startsWith('opt-')) {
-    const row = await db.getFirstAsync<{
+    const fileRow = await db.getFirstAsync<{
       id: string;
       dirty: number;
       synced_at: number | null;
@@ -365,20 +374,34 @@ export async function resolveSyncedFileId(
       sid,
       sid,
     ]);
-    if (!row?.id) return null;
-    if (String(row.id).startsWith('opt-')) return null;
-    if (row.dirty === 1 && !row.synced_at) return null;
-    return row.id;
+    const fromFile = syncedId(fileRow);
+    if (fromFile) return fromFile;
+
+    const bundleRow = await db.getFirstAsync<{
+      id: string;
+      dirty: number;
+      synced_at: number | null;
+    }>('SELECT id, dirty, synced_at FROM bundles WHERE id = ?', [sid]);
+    return syncedId(bundleRow);
   }
 
-  const row = await db.getFirstAsync<{
+  const fileRow = await db.getFirstAsync<{
     id: string;
     dirty: number;
     synced_at: number | null;
   }>('SELECT id, dirty, synced_at FROM files WHERE id = ?', [sid]);
-  if (!row) return sid;
-  if (row.dirty === 1 && !row.synced_at) return null;
-  return row.id;
+  if (fileRow) return syncedId(fileRow);
+
+  // Nested linqs live in `bundles`, not `files`. Returning an unsynced linq id
+  // made /files/connect 403 (not owned) instead of waiting for upload.
+  const bundleRow = await db.getFirstAsync<{
+    id: string;
+    dirty: number;
+    synced_at: number | null;
+  }>('SELECT id, dirty, synced_at FROM bundles WHERE id = ?', [sid]);
+  if (bundleRow) return syncedId(bundleRow);
+
+  return sid;
 }
 
 /** Resolve all child ids for create_bundle after uploads have assigned server ids. */

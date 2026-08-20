@@ -3254,13 +3254,19 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
               }
               if (!newBundleId && Array.isArray(connectResponse.data?.links)) {
                 const candidate = connectResponse.data.links.find(
-                  (x: any) => String(x?.type ?? "").toLowerCase() === "bundle" && x?.id
+                  (x: any) =>
+                    ["bundle", "link", "linq"].includes(
+                      String(x?.type ?? "").toLowerCase()
+                    ) && x?.id
                 );
                 if (candidate?.id) newBundleId = String(candidate.id).trim();
               }
               if (!newBundleId && Array.isArray(connectResponse.data)) {
                 const bundlesInResponse = connectResponse.data.filter(
-                  (item: any) => String(item?.type ?? "").toLowerCase() === "bundle"
+                  (item: any) =>
+                    ["bundle", "link", "linq"].includes(
+                      String(item?.type ?? "").toLowerCase()
+                    )
                 );
                 if (bundlesInResponse.length > 0 && bundlesInResponse[0]?.id) {
                   newBundleId = String(bundlesInResponse[0].id).trim();

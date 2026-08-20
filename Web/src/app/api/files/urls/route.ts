@@ -4,7 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { entryTable } from "@/db/schema";
 import { genPresignedUrl } from "@/lib/server/s3/module.genPresignedUrl";
-import { isLinqType } from "@/lib/linqType";
+import { isEntryUuid, isLinqType } from "@/lib/linqType";
 
 const MAX_IDS = 40;
 
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     ...new Set(
       rawIds
         .map((id: unknown) => String(id ?? "").trim())
-        .filter((id: string) => id.length > 0 && !id.startsWith("opt-"))
+        .filter((id: string) => id.length > 0 && !id.startsWith("opt-") && isEntryUuid(id))
     ),
   ].slice(0, MAX_IDS);
 
@@ -57,8 +57,7 @@ export async function POST(req: NextRequest) {
     rows.map(async (row) => {
       const s3Key = String(row.file_id ?? "").trim();
       if (!s3Key) return;
-      const type = String(row.type ?? "").toLowerCase();
-      if (isLinqType(type)) return;
+      if (isLinqType(row.type)) return;
       try {
         const url = await genPresignedUrl({
           profile_id: userId,

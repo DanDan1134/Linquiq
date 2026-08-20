@@ -6,7 +6,7 @@ import { linkFiles } from "@/lib/server/linkFiles";
 import { isFileOwner } from "@/lib/server/getFileOwnership";
 import { EntryIdConflictError } from "@/lib/server/entryIdConflict";
 import { sanitizeDisplayName } from "@/lib/server/uploadValidation";
-import { LINQ_TYPE, DEFAULT_LINQ_NAME } from "@/lib/linqType";
+import { LINQ_TYPE, DEFAULT_LINQ_NAME, isEntryUuid } from "@/lib/linqType";
 import {
     MAX_CONNECT_MEMBERS,
     QuotaExceededError,
@@ -45,7 +45,17 @@ export async function POST(request: NextRequest) {
         typeof body?.bundle_id === "string" ? body.bundle_id.trim() : "";
 
     for (const fileId of file_ids) {
-        if (typeof fileId !== "string" || !(await isFileOwner(fileId, userId))) {
+        if (typeof fileId !== "string" || !isEntryUuid(fileId)) {
+            return NextResponse.json(
+                {
+                    okay: false,
+                    error: "Bad request",
+                    message: "file_ids must be valid file ids",
+                },
+                { status: 400 }
+            );
+        }
+        if (!(await isFileOwner(fileId, userId))) {
             return NextResponse.json(
                 {
                     okay: false,
