@@ -10,6 +10,7 @@ import {
   SEARCH_EXTRACT_MAX_CHARS,
 } from "@/lib/server/uploadValidation"
 import { MAX_SEARCH_CONTENT_JOBS } from "@/lib/server/userQuota"
+import { isLinqType } from "@/lib/linqType"
 
 // text-searchable file extensions
 const TEXT_TYPES = ["txt", "text", "md"]
@@ -118,7 +119,7 @@ export async function GET(request: NextRequest) {
     // Collect text files that need content search (after name miss)
     type TextJob = {
         file: typeof allFiles[0]
-        kind: "self" | "bundle"
+        kind: "self" | "linq"
         child?: typeof allFiles[0]
     }
     const textJobs: TextJob[] = []
@@ -137,8 +138,8 @@ export async function GET(request: NextRequest) {
             continue
         }
 
-        // 3) check bundle linked files (names first; queue text)
-        if (file.type.toLowerCase() === "bundle") {
+        // 3) check linq linked files (names first; queue text)
+        if (isLinqType(file.type)) {
             const links = await db
                 .select()
                 .from(linkTable)
@@ -165,7 +166,7 @@ export async function GET(request: NextRequest) {
             for (const link of links) {
                 const child = link.entries
                 if (TEXT_TYPES.includes(child.type) && child.file_id) {
-                    textJobs.push({ file, kind: "bundle", child })
+                    textJobs.push({ file, kind: "linq", child })
                 }
             }
         }

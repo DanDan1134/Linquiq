@@ -77,7 +77,8 @@ import {
   stripHtml,
   deriveNoteUploadFileName,
   truncateNameForLog,
-  deriveLinqTitleFromFiles,
+  DEFAULT_LINQ_NAME,
+  resolveLinqDisplayName,
   newLocalFileId,
   isLegacyOptId,
   isLikelyNoteFile,
@@ -137,11 +138,6 @@ function childNameSummary(files: any[] | undefined, max = 10): string {
 function linqContentSummary(fileCount: number, loadingWhenZero = false): string {
   if (fileCount > 0) return `linq containing ${fileCount} file(s)`;
   return loadingWhenZero ? "Loading nested linq contents..." : "linq containing 0 file(s)";
-}
-
-function isGenericLinqName(name: unknown): boolean {
-  const n = String(name ?? "").trim().toLowerCase();
-  return !n || n === "linq" || n === "bundle" || n === "link";
 }
 
 /** Backend row types that open the linq sheet (includes literal `linq`). */
@@ -345,18 +341,7 @@ async function separateBundlesAndFiles(allItems: any[]): Promise<{
       bundle.files?.length
         ? `linq containing ${bundle.files.length} file(s)`
         : bundle.content ?? "Empty linq";
-    if (isGenericLinqName(bundle.name)) {
-      const derivedTitle = deriveLinqTitleFromFiles(bundle.files ?? []);
-      bundle.name = derivedTitle;
-      const bundleId = String(bundle?.id ?? "").trim();
-      if (bundleId && !bundleId.startsWith("opt-") && !isGenericLinqName(derivedTitle)) {
-        try {
-          await updateBundleName(bundleId, derivedTitle);
-        } catch (e) {
-          logSafeWarn(`[linq] failed to persist derived title for id${idSuffixForLog(bundleId)}`, e);
-        }
-      }
-    }
+    bundle.name = resolveLinqDisplayName(bundle.name);
   }, 6);
 
   return { bundles, files };
@@ -721,12 +706,10 @@ async function runPhaseB(
             files: await runPhaseB(working.files, { skipRemote }),
           };
         }
-        if (isGenericLinqName(working.name)) {
-          working = {
-            ...working,
-            name: deriveLinqTitleFromFiles(working.files ?? []),
-          };
-        }
+        working = {
+          ...working,
+          name: resolveLinqDisplayName(working.name),
+        };
         return working;
       }
 
@@ -1126,9 +1109,7 @@ function AppContent() {
     }
     const selectedIds = Array.from(selectedFiles ?? []);
     if (selectedIds.length === 0) return;
-    // Leave the name input blank — the auto-derived title (e.g. "note +2") is
-    // still used as the fallback name if the user submits without typing one,
-    // but it shouldn't be pre-filled into the field itself.
+    // Leave the name input blank — unnamed linqs default to "linq".
     setLinqNameModal({
       visible: true,
       preset: "",
@@ -1139,15 +1120,8 @@ function AppContent() {
   const confirmCreateLinq = React.useCallback(
     async (folderName: string) => {
       const selectedIds = linqNameModal.selectedIds;
-      const linqFiles = selectedIds
-        .map((id) => fileById.get(id) ?? bundles.find((b: any) => String(b.id) === id))
-        .filter(Boolean);
       const typed = String(folderName ?? "").trim().slice(0, 80);
-      // Field is left blank by default — fall back to the auto-derived title
-      // (e.g. "note +2") instead of a literal "Untitled linq" when the user
-      // submits without typing a name.
-      const derived = selectedIds.length ? deriveLinqTitleFromFiles(linqFiles) : "";
-      const name = typed || derived || "Untitled linq";
+      const name = typed || DEFAULT_LINQ_NAME;
       setLinqNameModal({ visible: false, preset: "", selectedIds: [] });
       try {
         const localBundleId = newLocalFileId();
@@ -1718,9 +1692,7 @@ const filteredFiles = useMemo(() => {
               dec.content = dec.files?.length
                 ? linqContentSummary(dec.files.length)
                 : dec.content ?? 'Empty linq';
-              if (isGenericLinqName(dec.name)) {
-                dec.name = deriveLinqTitleFromFiles(dec.files ?? []);
-              }
+              dec.name = resolveLinqDisplayName(dec.name);
               return dec;
             });
             // Cache refresh after a pull that deleted everything: clear UI.
@@ -2151,9 +2123,7 @@ const filteredFiles = useMemo(() => {
           dec.content = dec.files?.length
             ? linqContentSummary(dec.files.length)
             : dec.content ?? 'Empty linq';
-          if (isGenericLinqName(dec.name)) {
-            dec.name = deriveLinqTitleFromFiles(dec.files ?? []);
-          }
+          dec.name = resolveLinqDisplayName(dec.name);
           return dec;
         });
         setUserFiles(decoratedFiles);
@@ -2890,7 +2860,7 @@ const openBundleDetail = async (bundle: any) => {
         setSelectedBundle({
           ...bundle,
           files,
-          name: (bundle.name === "Bundle" || bundle.name === "bundle") ? "linq" : bundle.name,
+          name: resolveLinqDisplayName(bundle.name),
           url: requestedBundleId ? `${API_BASE}/file/${requestedBundleId}` : bundle.url,
         });
         setSelectedBundleUuid(requestedBundleId);
@@ -2926,14 +2896,14 @@ const openBundleDetail = async (bundle: any) => {
 
   // Slow path: open the linq shell immediately, then fill children async.
   bundle.name =
-    bundle.name === "Bundle" || bundle.name === "bundle" ? "linq" : bundle.name;
+    resolveLinqDisplayName(bundle.name);
   bundle.url = requestedBundleId
     ? `${API_BASE}/file/${requestedBundleId}`
     : bundle.url;
   setSelectedBundle({
     ...bundle,
     files: enrichBundleFileTypeColors(bundle.files),
-    name: (bundle.name === "Bundle" || bundle.name === "bundle") ? "linq" : bundle.name,
+    name: resolveLinqDisplayName(bundle.name),
     url: requestedBundleId ? `${API_BASE}/file/${requestedBundleId}` : bundle.url,
     isHydratingChildren: true,
   });
@@ -3056,14 +3026,14 @@ const openBundleDetail = async (bundle: any) => {
 
   // ── Set display fields and show the sheet immediately from local rows ─
   bundle.name =
-    bundle.name === "Bundle" || bundle.name === "bundle" ? "linq" : bundle.name;
+    resolveLinqDisplayName(bundle.name);
   bundle.url = requestedBundleId
     ? `${API_BASE}/file/${requestedBundleId}`
     : bundle.url;
   const localFirstBundle = {
     ...bundle,
     files: enrichBundleFileTypeColors(bundle.files),
-    name: (bundle.name === "Bundle" || bundle.name === "bundle") ? "linq" : bundle.name,
+    name: resolveLinqDisplayName(bundle.name),
     url: requestedBundleId ? `${API_BASE}/file/${requestedBundleId}` : bundle.url,
     isHydratingChildren: !bundleChildRowsAreDisplayReady(bundle.files),
   };
@@ -3124,7 +3094,7 @@ const openBundleDetail = async (bundle: any) => {
   // 🛠 Fix the browser route URL for bundles (no /api)
   const cleanedBundle = {
     ...bundle,
-    name: (bundle.name === "Bundle" || bundle.name === "bundle") ? "linq" : bundle.name,
+    name: resolveLinqDisplayName(bundle.name),
     url: requestedBundleId ? `${API_BASE}/file/${requestedBundleId}` : bundle.url, // <-- site route
     isHydratingChildren: !bundleChildRowsAreDisplayReady(bundle.files),
   };

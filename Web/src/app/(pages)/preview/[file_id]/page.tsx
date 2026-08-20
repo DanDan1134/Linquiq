@@ -1,9 +1,10 @@
 import { FileData } from "@/app/components/FileDisplay";
-import Bundle from "@/app/components/Preview/Views/Bundle";
+import LinqPreview from "@/app/components/Preview/Views/Linq";
 import { SingleFilePreview } from "@/app/components/Preview/Views/SingleFile";
 import { NewPage, VerticalDiv } from "@/app/components/UILayout";
 import { getFileDataForUser } from "@/lib/server/getFileData";
 import { getFileUrl } from "@/lib/server/getFileUrl";
+import { isLinqType } from "@/lib/linqType";
 import { auth } from "@clerk/nextjs/server"
 import { redirect } from "next/navigation"
 import { UserButton } from "@clerk/nextjs";
@@ -76,8 +77,8 @@ export default async function PreviewPage({
                     <FileData fileData={fileData} />
                     <VerticalDiv style={{ borderRadius: "var(--border-rad)", scrollbarWidth: "auto" }} padding="0rem" gap="0.75rem">
                         <div style={previewBodyStyle}>
-                            {fileData.type.toLowerCase() === "bundle" ? (
-                                <Bundle bundle_data={fileUrl || undefined} />
+                            {isLinqType(fileData.type) ? (
+                                <LinqPreview linq_data={fileUrl || undefined} />
                             ) : (
                                 <SingleFilePreview
                                     fileUrl={fileUrl?.[0]?.url}

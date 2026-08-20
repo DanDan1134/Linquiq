@@ -4,6 +4,7 @@ import { entryTable } from "@/db/schema";
 import { db } from "@/db";
 import type { FileData } from "../Types/Types";
 import { EntryIdConflictError, isUniqueViolation } from "./entryIdConflict";
+import { isLinqType, LINQ_TYPE } from "@/lib/linqType";
 
 const CLIENT_ENTRY_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -20,13 +21,12 @@ export const createFile = async (
 
   for (const file of files) {
     const typeRaw = String(file.type ?? "").toLowerCase();
-    const isLinq =
-      typeRaw === "bundle" || typeRaw === "link" || typeRaw === "linq";
+    const isLinq = isLinqType(typeRaw);
     const row: typeof entryTable.$inferInsert = {
       owner_id: userId,
       creator_id: userId,
       name: file.name,
-      type: isLinq ? "Link" : file.name.split(".").pop() || "unknown",
+      type: isLinq ? LINQ_TYPE : file.name.split(".").pop() || "unknown",
       file_id: file.file_id,
       creator_email: email,
     };

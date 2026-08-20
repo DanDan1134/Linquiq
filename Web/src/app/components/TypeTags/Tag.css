@@ -46,10 +46,12 @@
     }
 }
 
+.linq,
 .bundle {
     color: var(--bundle-color-2);
 }
 
+.linq > .marker,
 .bundle > .marker {
     background-color: var(--bundle-color-2);
 }

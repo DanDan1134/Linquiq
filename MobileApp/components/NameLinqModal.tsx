@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { DEFAULT_LINQ_NAME } from "../utils/helpers";
 
 type NameLinqModalProps = {
   visible: boolean;
@@ -31,7 +32,7 @@ export function NameLinqModal({
 
   const save = () => {
     const next = String(name ?? "").trim().slice(0, 80);
-    onSave(next || "Untitled linq");
+    onSave(next || DEFAULT_LINQ_NAME);
   };
 
   return (

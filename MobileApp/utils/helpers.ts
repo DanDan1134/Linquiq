@@ -10,6 +10,40 @@ import { API_BASE } from "../api/client";
 import * as Crypto from "expo-crypto";
 import { logSafeWarn } from "./safeLog";
 
+/** Default stored/display name when the user leaves a linq unnamed. */
+export const DEFAULT_LINQ_NAME = "linq";
+
+/** Placeholder linq titles that should collapse to {@link DEFAULT_LINQ_NAME}. */
+export function isGenericLinqName(name: unknown): boolean {
+  const n = String(name ?? "").trim().toLowerCase();
+  return (
+    !n ||
+    n === "linq" ||
+    n === "link" ||
+    n === "bundle" ||
+    n === "untitled linq"
+  );
+}
+
+/** Legacy auto titles like "3 items · pdf, note" — no longer used for new linqs. */
+export function looksLikeAutoDerivedLinqTitle(name: unknown): boolean {
+  const n = String(name ?? "").trim();
+  return /^\d+\s+items?\s*(·|$)/i.test(n);
+}
+
+/** Stored + displayed linq title: user name, else {@link DEFAULT_LINQ_NAME}. */
+export function resolveLinqDisplayName(name: unknown): string {
+  const trimmed = String(name ?? "").trim().slice(0, 80);
+  if (
+    !trimmed ||
+    isGenericLinqName(trimmed) ||
+    looksLikeAutoDerivedLinqTitle(trimmed)
+  ) {
+    return DEFAULT_LINQ_NAME;
+  }
+  return trimmed;
+}
+
 /** Shown when offline with no on-device copy for image/PDF inline preview (iOS + Android). */
 export const OFFLINE_PREVIEW_MESSAGE = "Can't view in offline mode";
 
@@ -348,9 +382,11 @@ export function getDisplayFileNameForUi(
   type?: string | null,
   contentType?: string | null
 ): string {
+  const t = String(type ?? "").toLowerCase();
+  if (t === "link" || t === "bundle" || t === "linq") {
+    return resolveLinqDisplayName(name);
+  }
   const n = String(name ?? "");
-  if (n === "Bundle" || n === "bundle" || n === "Linq" || n.toLowerCase() === "linq")
-    return "linq";
   if (isLikelyNoteFile(n, type, contentType)) {
     const stripped = n.replace(/\.(txt|md|text)$/i, "").trim();
     return stripped || n;

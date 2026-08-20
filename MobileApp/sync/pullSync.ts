@@ -22,7 +22,7 @@ import {
 import type { LocalFile, LocalBundle } from '../db/fileRepo';
 import { getOutboxReferencedIds } from '../db/outbox';
 import { colorFromCategory, categoryFromExt } from '../utils/fileHelpers';
-import { deriveLinqTitleFromFiles } from '../utils/helpers';
+import { resolveLinqDisplayName, DEFAULT_LINQ_NAME } from '../utils/helpers';
 
 /**
  * Disable time-based purge grace so web deletions reflect on mobile immediately.
@@ -36,10 +36,6 @@ const isLinqType = (t: string) => {
   return lower === 'link' || lower === 'bundle' || lower === 'linq';
 };
 
-const isGenericLinqName = (name: unknown) => {
-  const n = String(name ?? '').trim().toLowerCase();
-  return !n || n === 'linq' || n === 'bundle' || n === 'link';
-};
 
 async function concurrentMap<T, R>(
   items: T[],
@@ -130,30 +126,7 @@ export async function pullAndMerge(): Promise<{
 
     if (isLinqType(item.type)) {
       const serverName = String(item.name ?? '').trim();
-      let bundleName = serverName || 'linq';
-      if (isGenericLinqName(serverName)) {
-        const childIds: string[] = Array.isArray(item.bundledFileIds)
-          ? item.bundledFileIds.map((x: any) => String(x))
-          : [];
-        const childRows = childIds
-          .map((cid) => rawById.get(cid) ?? localById.get(cid))
-          .filter(Boolean);
-        const derived = deriveLinqTitleFromFiles(
-          childRows.map((row: any) => ({
-            name: row?.name,
-            type: row?.type,
-            contentType: row?.contentType ?? row?.content_type ?? null,
-          }))
-        );
-        if (!isGenericLinqName(derived)) {
-          bundleName = derived;
-        } else {
-          const previousName = String(localBundleById.get(id)?.name ?? '').trim();
-          if (!isGenericLinqName(previousName)) {
-            bundleName = previousName;
-          }
-        }
-      }
+      const bundleName = resolveLinqDisplayName(serverName);
       await upsertBundle({
         id,
         name: bundleName,

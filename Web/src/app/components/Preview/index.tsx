@@ -6,7 +6,7 @@ import { useFileStore } from "../State Manager/appManager";
 import { getFileUrl, type FileUrlResult } from "@/lib/server/getFileUrl";
 import { getFileType } from "@/lib/client/getFileType"
 import { VerticalDiv } from "../UILayout";
-import Bundle from "./Views/Bundle";
+import LinqPreview from "./Views/Linq";
 import { sanitizeHtml } from "@/lib/client/sanitizeHtml";
 import { PrivateDocumentPreview } from "@/app/components/Preview/PrivateDocumentPreview";
 import { privateFileSrc } from "@/lib/client/privateFileSrc";
@@ -49,15 +49,10 @@ export const Preview = () => {
     const previewedFile = useFileStore((state) => state.previewedFile)
     const layoutState = useFileStore((state)=>state.layoutState)
 
-    const [fileUrl, SetFileUrl] = useState<FileUrlResult[] | undefined>([{ url: "", data: null }]);
-    const [fileType, SetFileType] = useState<string>(getFileType(previewedFile?.name || ""))
+    const [fileUrl, SetFileUrl] = useState<FileUrlResult[] | undefined>(undefined);
+    const [fileType, SetFileType] = useState<string>(getFileType(previewedFile?.type || ""))
 
     const videoRef = useRef<HTMLVideoElement>(null);
-
-
-
-  
-
 
     useEffect(()=>{
 
@@ -88,17 +83,16 @@ export const Preview = () => {
 
 
 
-
     const DisplayFile = () => {
         const id = previewedFile?.id
         const privateSrc = privateFileSrc(id)
         const mediaSrc = privateSrc
 
-        if(fileType === "Bundle") {
-            if(!fileUrl || fileUrl[0].url === "") {
-                return <div>File not Found or something else when wrong...sorrry!</div>
+        if(fileType === "Linq") {
+            if(!fileUrl || fileUrl.length === 0) {
+                return <div>This linq has no files yet.</div>
             }
-            return <Bundle bundle_data={fileUrl} />
+            return <LinqPreview linq_data={fileUrl} />
         }
 
         if(!mediaSrc && fileType !== "Document"){
@@ -170,8 +164,8 @@ export const Preview = () => {
     return (
         <VerticalDiv style={{width : "100%", height : "100%", minHeight : 0, padding : "1rem", boxSizing : "border-box", overflowY : "auto", overscrollBehaviorY : "none"}}> 
             
-            {fileType==="Bundle" && fileUrl !== undefined ? (
-                    <Bundle bundle_data={fileUrl} />
+            {fileType==="Linq" && fileUrl !== undefined ? (
+                    <LinqPreview linq_data={fileUrl} />
                 ) : (DisplayFile())}
                 
             

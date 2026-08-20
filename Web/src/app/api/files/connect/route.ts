@@ -6,6 +6,7 @@ import { linkFiles } from "@/lib/server/linkFiles";
 import { isFileOwner } from "@/lib/server/getFileOwnership";
 import { EntryIdConflictError } from "@/lib/server/entryIdConflict";
 import { sanitizeDisplayName } from "@/lib/server/uploadValidation";
+import { LINQ_TYPE, DEFAULT_LINQ_NAME } from "@/lib/linqType";
 import {
     MAX_CONNECT_MEMBERS,
     QuotaExceededError,
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
         );
     }
-    const folderName = sanitizeDisplayName(String(body?.name ?? "")) || "Untitled linq";
+    const folderName = sanitizeDisplayName(String(body?.name ?? "")) || DEFAULT_LINQ_NAME;
     const clientBundleId =
         typeof body?.bundle_id === "string" ? body.bundle_id.trim() : "";
 
@@ -56,26 +57,27 @@ export async function POST(request: NextRequest) {
         }
     }
 
-    const newBundle: FileData = {
+    const newLinq: FileData = {
         owner_id: userId,
         creator_id: userId,
         name: folderName,
-        type: "Link",
+        type: LINQ_TYPE,
         ...(clientBundleId ? { id: clientBundleId } : {}),
     };
 
     try {
         await assertCanAddFiles(userId, 1);
-        const createdEntries = await createFile([newBundle], userId);
-        const bundleId = createdEntries[0].id;
+        const createdEntries = await createFile([newLinq], userId);
+        const linqId = createdEntries[0].id;
         const links =
-            file_ids.length > 0 ? await linkFiles(file_ids, bundleId, userId) : [];
+            file_ids.length > 0 ? await linkFiles(file_ids, linqId, userId) : [];
 
         return NextResponse.json(
             {
                 okay: true,
                 message: "Linq created",
                 data: {
+                    linq: createdEntries[0],
                     bundle: createdEntries[0],
                     links: links,
                 },

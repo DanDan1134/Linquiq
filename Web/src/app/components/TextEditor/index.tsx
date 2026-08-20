@@ -61,7 +61,7 @@ export const TextEditor = () => {
                     const resolvedTitle = fallbackTitle.replace(/[\\/:*?"<>|]/g, "-")
 
                     const notefile = new File([noteText], resolvedTitle + ".txt", {
-                        type: "text/html",
+                        type: "text/plain",
                     })
                     const dataTransfer = new DataTransfer()
                     dataTransfer.items.add(notefile)

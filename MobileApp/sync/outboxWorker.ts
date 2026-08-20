@@ -9,7 +9,7 @@
 import { uploadFile, uploadBlob } from '../api/upload';
 import { logPerf } from '../utils/perfLog';
 import { errorMessage } from '../utils/safeLog';
-import { truncateNameForLog } from '../utils/helpers';
+import { DEFAULT_LINQ_NAME, truncateNameForLog } from '../utils/helpers';
 import { deleteFileById, renameFile } from '../api/files';
 import { createBundle, addFilesToBundle, removeFilesFromBundle, invalidateBundleContentsCache } from '../api/bundles';
 import {
@@ -198,7 +198,7 @@ async function processJob(payload: OutboxPayload): Promise<void> {
         row?.bundledFileIds?.length
           ? row.bundledFileIds
           : payload.childLocalIds ?? [];
-      const folderName = String(row?.name ?? "").trim() || "Untitled linq";
+      const folderName = String(row?.name ?? "").trim() || DEFAULT_LINQ_NAME;
       const realIds =
         childLocalIds.length > 0
           ? await resolveChildIdsForBundle(childLocalIds)

@@ -3,14 +3,10 @@ import { NextResponse } from "next/server";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { entryTable, linkTable } from "@/db/schema";
+import { isLinqType } from "@/lib/linqType";
 
 /** Keep list payloads small — full text is loaded on open/search. */
 const LIST_DESCRIPTION_MAX = 200;
-
-const isLinqType = (type: unknown) => {
-    const t = String(type ?? "").toLowerCase();
-    return t === "link" || t === "bundle" || t === "linq";
-};
 
 function truncateDescription(value: string | null | undefined): string | null {
     if (value == null) return null;

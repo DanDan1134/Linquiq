@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { entryTable } from "@/db/schema";
 import { genPresignedUrl } from "@/lib/server/s3/module.genPresignedUrl";
+import { isLinqType } from "@/lib/linqType";
 
 const MAX_IDS = 40;
 
@@ -57,8 +58,7 @@ export async function POST(req: NextRequest) {
       const s3Key = String(row.file_id ?? "").trim();
       if (!s3Key) return;
       const type = String(row.type ?? "").toLowerCase();
-      // Linqs have no single S3 object to presign.
-      if (type === "link" || type === "bundle" || type === "linq") return;
+      if (isLinqType(type)) return;
       try {
         const url = await genPresignedUrl({
           profile_id: userId,

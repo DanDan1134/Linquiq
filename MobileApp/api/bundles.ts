@@ -1,8 +1,12 @@
 import { categoryFromExt, colorFromCategory } from '../utils/fileHelpers';
+import {
+  DEFAULT_LINQ_NAME,
+  resolveLinqDisplayName,
+  isShareableEntryId,
+} from '../utils/helpers';
 import * as filesApi from './files';
 import { apiGet, apiPost, apiDelete } from './client';
 import { dedupe } from '../utils/inflight';
-import { isShareableEntryId } from '../utils/helpers';
 import { idForLog, logSafeWarn } from '../utils/safeLog';
 
 export async function createBundle(
@@ -17,7 +21,7 @@ export async function createBundle(
 }> {
   const body: Record<string, unknown> = {
     file_ids: serverIds ?? [],
-    name: String(name ?? "").trim() || "Untitled linq",
+    name: String(name ?? "").trim() || DEFAULT_LINQ_NAME,
   };
   const clientId = String(bundleId ?? "").trim();
   if (clientId && isShareableEntryId(clientId)) {
@@ -288,7 +292,7 @@ export async function getNestedContents(bundleId: string, maxDepth = 1): Promise
         }
         const nestedCount = nestedFiles.length || nestedBundledFileIds.length;
 
-        const cleanedName = (name === 'Bundle' || name === 'bundle') ? 'linq' : name;
+        const cleanedName = resolveLinqDisplayName(name);
 
         return {
           id: childId,                           // UUID string
