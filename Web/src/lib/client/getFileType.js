@@ -1,6 +1,11 @@
 "use client"
 
-import { isLinqType, isGenericLinqName, resolveLinqDisplayName } from "@/lib/linqType";
+import {
+    isLinqType,
+    isGenericLinqName,
+    resolveLinqDisplayName,
+    DEFAULT_LINQ_NAME,
+} from "@/lib/linqType";
 
 export const getFileType = (fileType) => {
     if (!fileType) return "Linq";
