@@ -1,10 +1,11 @@
 "use server"
 import { auth } from "@clerk/nextjs/server"
 import { genPresignedUrl } from "./s3/module.genPresignedUrl"
-import { getBundle } from "./getBundle";
+import { getLinq } from "./getLinq";
 import { isFileOwner } from "./getFileOwnership";
+import { isLinqType } from "@/lib/linqType";
 
-/** Minimal shape for presign + bundle branching; accepts DB rows or client file objects */
+/** Minimal shape for presign + linq branching; accepts DB rows or client file objects */
 export type FileUrlSource = {
     id: string
     file_id: string | null
@@ -13,7 +14,7 @@ export type FileUrlSource = {
 
 export type FileUrlResult = { url: string | undefined; data: unknown; children?: FileUrlResult[] }
 
-export const getFileUrl = async (file: FileUrlSource, is_bundle: boolean): Promise<FileUrlResult[] | undefined> => {
+export const getFileUrl = async (file: FileUrlSource, is_linq_child: boolean): Promise<FileUrlResult[] | undefined> => {
     const {userId} = await auth()
 
     if(!userId) {
@@ -24,9 +25,9 @@ export const getFileUrl = async (file: FileUrlSource, is_bundle: boolean): Promi
         return undefined;
     }
 
-    if (file.type.toLowerCase() === "bundle" && !is_bundle) {
-        const bundle_contents = await getBundle(file.id)
-        return bundle_contents
+    if (isLinqType(file.type) && !is_linq_child) {
+        const linq_contents = await getLinq(file.id)
+        return linq_contents
     }
 
     if (!file.file_id) {

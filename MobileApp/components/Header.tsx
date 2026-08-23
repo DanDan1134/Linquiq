@@ -183,7 +183,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const syncLabel =
     syncStatus === "syncing"
-      ? "Updating list…"
+      ? "Syncing..."
       : cacheLabel
         ? cacheLabel
         : syncStatus === "error"
@@ -241,7 +241,7 @@ export const Header: React.FC<HeaderProps> = ({
             delayPressIn={0}
             accessibilityLabel={
               syncStatus === "syncing"
-                ? "Updating list…"
+                ? "Syncing..."
                 : syncStatus === "caching"
                   ? cacheLabel ?? "Saving files…"
                   : syncStatus === "error"

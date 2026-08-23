@@ -1,10 +1,10 @@
 import React from 'react';
-import { Platform, View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
-import { useSSO, useSignInWithApple } from '@clerk/clerk-expo';
-import * as AppleAuthentication from 'expo-apple-authentication';
+import { useSSO } from '@clerk/clerk-expo';
+import { logSafeError } from '../utils/safeLog';
 
 /** Official Google "G" logo as SVG (no PNG asset — fixes AAPT build) */
 function GoogleGLogo({ size = 20 }: { size?: number }) {
@@ -58,40 +58,12 @@ export const SocialButtons: React.FC<Props> = ({ onSuccess, onError }) => {
       }
     } catch (e) {
       onError?.(e);
-      console.error('Google SSO error', e);
+      logSafeError('Google SSO error', e);
     }
   }, [onSuccess, onError, startSSOFlow]);
 
-  // Apple (native) via Clerk’s Apple helper + expo-apple-authentication
-  const { startAppleAuthenticationFlow } = useSignInWithApple();
-  const handleApple = React.useCallback(async () => {
-    try {
-      // Redirect URL optional for Apple helper; include if you whitelisted a specific path
-      const { createdSessionId, setActive } = await startAppleAuthenticationFlow();
-      if (createdSessionId && setActive) {
-        await setActive({ session: createdSessionId });
-        onSuccess?.();
-      }
-    } catch (e: any) {
-      if (e?.code === 'ERR_REQUEST_CANCELED') return;
-      onError?.(e);
-      console.error('Apple Sign-In error', e);
-    }
-  }, [onSuccess, onError, startAppleAuthenticationFlow]);
-
   return (
     <View style={styles.container}>
-      {/* Apple (iOS only). Prefer the native SIWA button */}
-      {Platform.OS === 'ios' ? (
-        <AppleAuthentication.AppleAuthenticationButton
-          buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
-          buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-          cornerRadius={6}
-          style={styles.appleBtn}
-          onPress={handleApple}
-        />
-      ) : null}
-
       {/* Google */}
       {/* <TouchableOpacity style={styles.googleBtn} onPress={handleGoogle}>
         <Text style={styles.googleText}>Continue with Google</Text>
@@ -118,7 +90,6 @@ export const SocialButtons: React.FC<Props> = ({ onSuccess, onError }) => {
 
 const styles = StyleSheet.create({
   container: { marginTop: 16, gap: 12 },
-  appleBtn: { width: '100%', height: 52, borderRadius: 6 },
 
   googleBtn: {
     height: 52,

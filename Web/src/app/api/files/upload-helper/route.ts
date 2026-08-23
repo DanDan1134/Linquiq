@@ -1,6 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
 import crypto from "crypto";
 import { genPresignedUrl } from "@/lib/server/s3/module.genPresignedUrl";
+import { getAuthedUserId } from "@/lib/server/getAuthedUserId";
+import { logSafeError } from "@/lib/safeLog";
 import { NextRequest, NextResponse } from "next/server";
 import {
   isValidUploadCount,
@@ -14,7 +15,7 @@ import {
  * Clients must POST file metadata so Content-Type and Content-Length are signed.
  */
 export async function POST(request: NextRequest) {
-  const { userId } = await auth();
+  const userId = await getAuthedUserId(request);
 
   if (!userId) {
     return new Response("Unauthorized", { status: 401 });
@@ -91,8 +92,7 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (err) {
-    console.log("upload-helper failed to generate presigned URLs");
-    console.log(err);
+    logSafeError("upload-helper presign", err);
     return new Response(
       "Encountered an unknown condition. Either failed to generate presignedUrl or something far worse :(",
       { status: 500 }

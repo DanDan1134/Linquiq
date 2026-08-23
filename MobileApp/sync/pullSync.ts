@@ -22,7 +22,8 @@ import {
 import type { LocalFile, LocalBundle } from '../db/fileRepo';
 import { getOutboxReferencedIds } from '../db/outbox';
 import { colorFromCategory, categoryFromExt } from '../utils/fileHelpers';
-import { deriveLinqTitleFromFiles } from '../utils/helpers';
+import { resolveLinqDisplayName, DEFAULT_LINQ_NAME } from '../utils/helpers';
+import { devLog } from '../utils/safeLog';
 
 /**
  * Disable time-based purge grace so web deletions reflect on mobile immediately.
@@ -36,10 +37,6 @@ const isLinqType = (t: string) => {
   return lower === 'link' || lower === 'bundle' || lower === 'linq';
 };
 
-const isGenericLinqName = (name: unknown) => {
-  const n = String(name ?? '').trim().toLowerCase();
-  return !n || n === 'linq' || n === 'bundle' || n === 'link';
-};
 
 async function concurrentMap<T, R>(
   items: T[],
@@ -74,7 +71,9 @@ export async function pullAndMerge(): Promise<{
   changedFileIds: string[];
 }> {
   // 1. Fetch from server (cast to any[] — server may return extra fields beyond UiFile)
+  devLog('[pull] 1/6 fetching /files');
   const raw = await filesApi.getAll() as any[];
+  devLog(`[pull] 1/6 done · ${raw.length} server rows`);
 
   // Snapshot current file timestamps before applying server upserts.
   const localFilesBefore = await getAllFiles();
@@ -120,6 +119,7 @@ export async function pullAndMerge(): Promise<{
   }
 
   // 4. Upsert each server row into SQLite (server wins unless local dirty)
+  devLog(`[pull] 4/6 upserting ${raw.length} rows`);
   for (const item of raw) {
     const id = String(item.id ?? '');
     if (!id) continue;
@@ -130,30 +130,7 @@ export async function pullAndMerge(): Promise<{
 
     if (isLinqType(item.type)) {
       const serverName = String(item.name ?? '').trim();
-      let bundleName = serverName || 'linq';
-      if (isGenericLinqName(serverName)) {
-        const childIds: string[] = Array.isArray(item.bundledFileIds)
-          ? item.bundledFileIds.map((x: any) => String(x))
-          : [];
-        const childRows = childIds
-          .map((cid) => rawById.get(cid) ?? localById.get(cid))
-          .filter(Boolean);
-        const derived = deriveLinqTitleFromFiles(
-          childRows.map((row: any) => ({
-            name: row?.name,
-            type: row?.type,
-            contentType: row?.contentType ?? row?.content_type ?? null,
-          }))
-        );
-        if (!isGenericLinqName(derived)) {
-          bundleName = derived;
-        } else {
-          const previousName = String(localBundleById.get(id)?.name ?? '').trim();
-          if (!isGenericLinqName(previousName)) {
-            bundleName = previousName;
-          }
-        }
-      }
+      const bundleName = resolveLinqDisplayName(serverName);
       await upsertBundle({
         id,
         name: bundleName,
@@ -198,6 +175,7 @@ export async function pullAndMerge(): Promise<{
       typeColor: colorFromCategory(f.type),
     }));
 
+  devLog('[pull] 5/6 purging stale local rows');
   const localFiles = await getAllFiles();
   const localBundles = await getAllBundles();
 
@@ -233,6 +211,7 @@ export async function pullAndMerge(): Promise<{
   }
 
   // 6. Re-read from SQLite (source of truth after merge)
+  devLog('[pull] 6/6 re-reading merged state');
   const mergedFiles = await getAllFiles();
   const mergedBundles = await getAllBundles();
 

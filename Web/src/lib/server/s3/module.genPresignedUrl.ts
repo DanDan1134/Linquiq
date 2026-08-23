@@ -1,6 +1,7 @@
 import { s3Client, bucketName } from "./module.s3client.js";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { logSafeError } from "../../safeLog";
 
 type GenPresignedUrlArgs = {
   profile_id: string;
@@ -56,7 +57,7 @@ export const genPresignedUrl = async ({
   try {
     return await getSignedUrl(s3Client, command, { expiresIn: expirationInSec });
   } catch (err) {
-    console.log("Couldn't generate presigned url: ", err);
+    logSafeError("genPresignedUrl", err);
     throw new Error("Couldn't generate presigned url");
   }
 };

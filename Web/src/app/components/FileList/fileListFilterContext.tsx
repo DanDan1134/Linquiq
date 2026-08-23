@@ -12,7 +12,7 @@ import {
 } from "react"
 
 export const FILE_TYPE_OPTIONS = [
-    { label: "linq", value: "Bundle" },
+    { label: "linq", value: "Linq" },
     { label: "Document", value: "Document" },
     { label: "Note", value: "Note" },
     { label: "Recording", value: "Recording" },

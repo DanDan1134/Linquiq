@@ -11,6 +11,8 @@ import {
   validateUploadMeta,
   MAX_FILE_BYTES,
   MAX_UPLOAD_COUNT,
+  sanitizeDisplayName,
+  safeContentDispositionFilename,
 } from "./uploadValidation";
 
 describe("isValidUploadCount", () => {
@@ -92,6 +94,16 @@ describe("MIME / content-type pairing", () => {
         contentLength: MAX_FILE_BYTES + 1,
       })
     ).toThrow("FILE_TOO_LARGE");
+  });
+});
+
+describe("sanitizeDisplayName", () => {
+  it("keeps normal linq titles and strips header-breaking chars", () => {
+    expect(sanitizeDisplayName("2026 conference")).toBe("2026 conference");
+    expect(sanitizeDisplayName("file.pdf\r\nContent-Type: text/html")).toBe(
+      "file.pdfContent-Type: text/html"
+    );
+    expect(safeContentDispositionFilename('a"b\nc.pdf')).toBe("abc.pdf");
   });
 });
 

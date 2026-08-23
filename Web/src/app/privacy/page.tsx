@@ -26,7 +26,7 @@ export default function PrivacyPolicyPage() {
       <main className={styles.main}>
         <h1 className={styles.title}>Privacy Policy</h1>
         <p className={styles.meta}>
-          <strong>Last updated:</strong> July 13, 2026
+          <strong>Last updated:</strong> August 19, 2026
           <br />
           <strong>Operator:</strong> GLOBIDEA LLC (“we,” “us,” or “our”)
           <br />
@@ -60,7 +60,7 @@ export default function PrivacyPolicyPage() {
               your account.
             </li>
             <li>
-              <strong>Name</strong> — when provided by Apple or Google sign-in
+              <strong>Name</strong> — when provided by Google sign-in
               (or if you enter it yourself).
             </li>
             <li>
@@ -82,15 +82,27 @@ export default function PrivacyPolicyPage() {
               types you assign).
             </li>
             <li>
-              <strong>Search history</strong> — in-app search queries you submit
-              that are sent to our servers so we can return results from your
-              content.
+              <strong>Search queries</strong> — in-app search terms sent to our
+              servers so we can return matches. Hosting logs may retain those
+              queries for a short time.
+            </li>
+            <li>
+              <strong>On-device copies</strong> — the mobile app stores metadata
+              and file bytes locally (SQLite and app files) so you can work
+              offline. Those copies are wiped on log out.
+            </li>
+            <li>
+              <strong>Text extracts</strong> — for searchable notes we may store
+              a short extract of the file text in our database, in addition to
+              the file in object storage.
             </li>
           </ul>
           <p>
             We only collect content you choose to create, upload, or submit.
             Device permissions (such as camera, microphone, or photo library)
             are used solely to capture or select content you decide to save.
+            Photos, badges, and voice notes can include other people. You are
+            responsible for getting their consent before you capture them.
           </p>
         </section>
 
@@ -98,7 +110,11 @@ export default function PrivacyPolicyPage() {
           <h2>3. Information We Do Not Collect</h2>
           <p>Unless we notify you otherwise and update this policy, we do not collect:</p>
           <ul>
-            <li>Precise or coarse location</li>
+            <li>
+              Device GPS. We do not request location permission. Photos may
+              originally contain GPS in EXIF; we strip that metadata when we
+              process images. A photo of a place can still show where you were.
+            </li>
             <li>Contacts from your device address book</li>
             <li>Payment or financial information</li>
             <li>Health or fitness data</li>
@@ -141,7 +157,10 @@ export default function PrivacyPolicyPage() {
           <ul>
             <li>
               <strong>Clerk</strong> — authentication and account sign-in
-              (email/password, Apple, Google).
+              (email/password, Google).
+            </li>
+            <li>
+              <strong>Vercel</strong> — hosts the website and API.
             </li>
             <li>
               <strong>Cloud hosting, database, and object storage providers</strong>{" "}
@@ -152,9 +171,8 @@ export default function PrivacyPolicyPage() {
           <p>
             These providers are authorized to process data only as needed to
             provide services to us, under their own security and privacy
-            obligations. Apple and Google may also process information when you
-            choose to sign in with those services, under their respective
-            policies.
+            obligations. Google may also process information when you
+            choose to sign in with Google, under Google policies.
           </p>
         </section>
 
@@ -179,11 +197,11 @@ export default function PrivacyPolicyPage() {
             <li>Request deletion of your account and associated content</li>
           </ul>
           <p>
-            You can update some account details in the app or through your sign-in
-            provider. To request access or deletion, contact us through the
-            Linquiq website or in-app support channels using the email address
-            associated with your account, and describe your request. We may need
-            to verify your identity before completing it.
+            You can delete your account and associated files in the mobile app
+            under Settings. You can also email{" "}
+            <a href="mailto:privacy@linquiq.com">privacy@linquiq.com</a> from
+            the address on your account. We may need to verify your identity
+            before completing a request.
           </p>
         </section>
 
@@ -211,11 +229,14 @@ export default function PrivacyPolicyPage() {
         <section className={styles.section}>
           <h2>11. Children</h2>
           <p>
-            Linquiq is not directed to children under 13. We do not knowingly
+            Linquiq is not directed to children under 13. Closed TestFlight
+            testing is limited to invited testers who are 18 or older (see{" "}
+            <Link href="/terms">Tester Terms</Link>). We do not knowingly
             collect personal information from children under 13. If you believe
             a child under 13 has provided us personal information, contact us
-            through the Linquiq website or in-app support channels and we will
-            take steps to delete it.
+            at{" "}
+            <a href="mailto:privacy@linquiq.com">privacy@linquiq.com</a> and we
+            will take steps to delete it.
           </p>
         </section>
 
@@ -234,7 +255,9 @@ export default function PrivacyPolicyPage() {
           <h2>13. Contact Us</h2>
           <p>
             Questions about this Privacy Policy or your data can be directed to{" "}
-            <strong>GLOBIDEA LLC</strong> through the Linquiq product site at{" "}
+            <strong>GLOBIDEA LLC</strong> at{" "}
+            <a href="mailto:privacy@linquiq.com">privacy@linquiq.com</a>
+            {" "}or the product site{" "}
             <a href="https://www.linquiq.com">https://www.linquiq.com</a>.
           </p>
         </section>

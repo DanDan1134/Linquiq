@@ -1,6 +1,7 @@
-import { apiGet, apiPost, apiDelete } from './client';
+import { apiGet, apiPost, apiPatch, apiDelete } from './client';
 import { dedupe } from '../utils/inflight';
 import { getCachedUrl, setCachedUrl } from '../utils/urlCache';
+import { logSafeWarn } from '../utils/safeLog';
 
 type ServerFileRow = {
   id?: string;
@@ -116,7 +117,7 @@ export async function getUrlsByIds(
         setCachedUrl(id, { url: clean });
       }
     } catch (e) {
-      console.warn("[files] batch urls failed; callers may fall back to getById", e);
+      logSafeWarn("[files] batch urls failed; callers may fall back to getById", e);
     }
   }
   return urls;
@@ -137,13 +138,28 @@ export async function deleteFiles(fileIds: string[]): Promise<{ okay: boolean }>
   return { okay: true };
 }
 
-/** DELETE /api/files/:file_id — matches Next.js web (one id per request). */
+/** PATCH /api/files/:id — rename a file or linq. */
+export async function renameFile(
+  fileId: string,
+  name: string
+): Promise<{ okay: boolean; name: string }> {
+  const id = encodeURIComponent(String(fileId).trim());
+  const next = String(name ?? "").trim();
+  if (!id) throw new Error("Missing file id");
+  if (!next) throw new Error("Missing name");
+  return apiPatch<{ okay: boolean; name: string }>(`/files/${id}`, { name: next });
+}
 export async function deleteFileById(
   fileId: string
 ): Promise<{ okay: boolean; message?: string }> {
   const id = encodeURIComponent(String(fileId).trim());
   if (!id) throw new Error("Missing file id");
   return apiDelete<{ okay: boolean; message?: string }>(`/files/${id}`);
+}
+
+/** POST /api/account/delete — wipes this user's files, S3 objects, and Clerk user. */
+export async function deleteAccount(): Promise<{ okay: boolean }> {
+  return apiPost<{ okay: boolean }>("/account/delete", {});
 }
 
 export type SearchHitFile = ServerFileRow & Record<string, unknown>;
@@ -171,7 +187,7 @@ export async function getNoteContent(url: string): Promise<string | null> {
     if (res.ok) return await res.text();
     return null;
   } catch (err) {
-    console.warn('Failed to fetch note content:', err);
+    logSafeWarn('Failed to fetch note content', err);
     return null;
   }
 }

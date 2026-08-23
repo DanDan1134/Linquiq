@@ -6,9 +6,10 @@ import { useFileStore } from "../State Manager/appManager";
 import { getFileUrl, type FileUrlResult } from "@/lib/server/getFileUrl";
 import { getFileType } from "@/lib/client/getFileType"
 import { VerticalDiv } from "../UILayout";
-import Bundle from "./Views/Bundle";
+import LinqPreview from "./Views/Linq";
 import { sanitizeHtml } from "@/lib/client/sanitizeHtml";
 import { PrivateDocumentPreview } from "@/app/components/Preview/PrivateDocumentPreview";
+import { privateFileSrc } from "@/lib/client/privateFileSrc";
 
 const NoteView = ({fileUrl}: {fileUrl: string}) => {
     const [fileSrc, setFileSrc] = useState<string | undefined>(undefined)
@@ -48,20 +49,14 @@ export const Preview = () => {
     const previewedFile = useFileStore((state) => state.previewedFile)
     const layoutState = useFileStore((state)=>state.layoutState)
 
-    const [fileUrl, SetFileUrl] = useState<FileUrlResult[] | undefined>([{ url: "", data: null }]);
-    const [fileType, SetFileType] = useState<string>(getFileType(previewedFile?.name || ""))
+    const [fileUrl, SetFileUrl] = useState<FileUrlResult[] | undefined>(undefined);
+    const [fileType, SetFileType] = useState<string>(getFileType(previewedFile?.type || ""))
 
     const videoRef = useRef<HTMLVideoElement>(null);
-
-
-
-  
-
 
     useEffect(()=>{
 
         const GetFileUrl = async (file: File) => {
-            console.log(file)
             const file_url = await getFileUrl(file, false);
             const file_type = getFileType(file.type);
             SetFileUrl(file_url)
@@ -88,17 +83,26 @@ export const Preview = () => {
 
 
 
-
     const DisplayFile = () => {
-        if(!fileUrl || fileUrl[0].url === "" ){
+        const id = previewedFile?.id
+        const privateSrc = privateFileSrc(id)
+        const mediaSrc = privateSrc
+
+        if(fileType === "Linq") {
+            if(!fileUrl || fileUrl.length === 0) {
+                return <div>This linq has no files yet.</div>
+            }
+            return <LinqPreview linq_data={fileUrl} />
+        }
+
+        if(!mediaSrc && fileType !== "Document"){
             return (<div>
                 File not Found or something else when wrong...sorrry!
             </div>)
         }
-        console.log(fileType)
         switch (fileType){
             case "Document": {
-                const entry = fileUrl[0].data as { id?: string; name?: string; type?: string } | null
+                const entry = fileUrl?.[0]?.data as { id?: string; name?: string; type?: string } | null
                 return (
                     <div style={{
                         width : "100%",
@@ -110,7 +114,6 @@ export const Preview = () => {
                             fileId={entry?.id || previewedFile?.id}
                             fileType={previewedFile?.type || entry?.type || "pdf"}
                             fileName={previewedFile?.name || entry?.name}
-                            downloadUrl={fileUrl[0].url as string}
                         />
                     </div>
                 )
@@ -118,7 +121,7 @@ export const Preview = () => {
 
             case "Image" : {
                 return (
-                    <img src={fileUrl[0].url as string} alt="" style={{
+                    <img src={mediaSrc} alt="" style={{
                         width : "100%",
                         borderRadius : "var(--border-rad)",
                         objectFit : "contain",
@@ -129,7 +132,7 @@ export const Preview = () => {
 
             case "Recording" : {
                 return (
-                    <video src={fileUrl[0].url as string} ref={videoRef} autoPlay={true} muted={true} style={{
+                    <video src={mediaSrc} ref={videoRef} autoPlay={true} muted={true} style={{
                         width : "100%",
                         borderRadius : "var(--border-rad)",
                         objectFit : "contain",
@@ -138,20 +141,12 @@ export const Preview = () => {
                 )
             }
 
-            case "Bundle" : {
-                return (
-                    
-                    <Bundle bundle_data={fileUrl} />
-                    
-                )
-            }
-
             case "Note" : {
-                return (
+                return mediaSrc ? (
                     <>
-                        <NoteView fileUrl={fileUrl[0].url as string} />
+                        <NoteView fileUrl={mediaSrc} />
                     </>
-                )
+                ) : <div>File not Found or something else when wrong...sorrry!</div>
             }
 
             default: {
@@ -169,8 +164,8 @@ export const Preview = () => {
     return (
         <VerticalDiv style={{width : "100%", height : "100%", minHeight : 0, padding : "1rem", boxSizing : "border-box", overflowY : "auto", overscrollBehaviorY : "none"}}> 
             
-            {fileType==="Bundle" && fileUrl !== undefined ? (
-                    <Bundle bundle_data={fileUrl} />
+            {fileType==="Linq" && fileUrl !== undefined ? (
+                    <LinqPreview linq_data={fileUrl} />
                 ) : (DisplayFile())}
                 
             

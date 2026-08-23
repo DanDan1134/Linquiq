@@ -6,11 +6,12 @@
  * It is safe to call concurrently — a guard flag prevents double-runs.
  */
 
-import { uploadFile, uploadBlob } from '../api/upload';
+import { uploadFile, uploadNoteText } from '../api/upload';
 import { logPerf } from '../utils/perfLog';
-import { truncateNameForLog } from '../utils/helpers';
-import { deleteFileById } from '../api/files';
-import { createBundle } from '../api/bundles';
+import { devLog, errorMessage } from '../utils/safeLog';
+import { DEFAULT_LINQ_NAME, truncateNameForLog } from '../utils/helpers';
+import { deleteFileById, renameFile } from '../api/files';
+import { createBundle, addFilesToBundle, removeFilesFromBundle, invalidateBundleContentsCache } from '../api/bundles';
 import {
   getPendingJobs,
   removeJob,
@@ -18,7 +19,7 @@ import {
   type OutboxPayload,
 } from '../db/outbox';
 import type { OutboxRow } from '../db/schema';
-import { markFileSynced, markBundleSynced, resolveChildIdsForBundle } from '../db/fileRepo';
+import { markFileSynced, markBundleSynced, resolveChildIdsForBundle, getBundleById } from '../db/fileRepo';
 import { migrateListThumbCache } from '../utils/listThumbCache';
 
 const MAX_RETRIES = 5;
@@ -29,6 +30,7 @@ function sortOutboxJobs(jobs: OutboxRow[]): OutboxRow[] {
     if (op === 'upload_file' || op === 'upload_blob') return 0;
     if (op === 'delete') return 1;
     if (op === 'create_bundle') return 2;
+    if (op === 'add_to_bundle' || op === 'remove_from_bundle' || op === 'rename_bundle' || op === 'rename_file') return 3;
     return 9;
   };
   return [...jobs].sort((a, b) => {
@@ -70,7 +72,14 @@ export async function drainOutbox(): Promise<void> {
 
       // create_bundle must never be permanently abandoned — children may still be
       // uploading or waiting for a connection. All other ops respect MAX_RETRIES.
-      if (job.retries >= MAX_RETRIES && payload.op !== 'create_bundle') {
+      if (
+        job.retries >= MAX_RETRIES &&
+        payload.op !== 'create_bundle' &&
+        payload.op !== 'add_to_bundle' &&
+        payload.op !== 'remove_from_bundle' &&
+        payload.op !== 'rename_bundle' &&
+        payload.op !== 'rename_file'
+      ) {
         // Remove dead jobs so every sync does not re-log the same warning forever.
         await removeJob(job.id);
         continue;
@@ -88,8 +97,17 @@ export async function drainOutbox(): Promise<void> {
             ? `del id…${String((payload as any).serverId ?? '').slice(-6)}`
             : payload.op === 'create_bundle'
               ? 'create_linq'
-              : String(job.op);
+              : payload.op === 'add_to_bundle'
+                ? 'add_to_linq'
+                : payload.op === 'remove_from_bundle'
+                  ? 'remove_from_linq'
+                  : payload.op === 'rename_bundle'
+                  ? 'rename_linq'
+                  : payload.op === 'rename_file'
+                    ? 'rename_file'
+                    : String(job.op);
       const jobStarted = Date.now();
+      devLog(`[outbox] start ${payload.op} · ${jobLabel}`);
       try {
         await processJob(payload);
         await removeJob(job.id);
@@ -99,8 +117,14 @@ export async function drainOutbox(): Promise<void> {
       } catch (err) {
         const msg = String((err as any)?.message ?? err);
         if (
-          payload.op === 'create_bundle' &&
-          msg.includes('child not synced yet')
+          (payload.op === 'create_bundle' ||
+            payload.op === 'add_to_bundle' ||
+            payload.op === 'remove_from_bundle' ||
+            payload.op === 'rename_bundle' ||
+            payload.op === 'rename_file') &&
+          (msg.includes('child not synced yet') ||
+            msg.includes('bundle not synced yet') ||
+            msg.includes('file not synced yet'))
         ) {
           console.warn(
             `[outbox] ${payload.op} · waiting on child uploads · job#${job.id} · ${jobLabel}`
@@ -108,8 +132,7 @@ export async function drainOutbox(): Promise<void> {
           continue;
         }
         console.warn(
-          `[outbox] ${payload.op} failed · ${jobLabel} · job#${job.id} · ${Date.now() - jobStarted}ms:`,
-          (err as any)?.message ?? err
+          `[outbox] ${payload.op} failed · ${jobLabel} · job#${job.id} · ${Date.now() - jobStarted}ms · ${errorMessage(err)}`
         );
         await incrementRetry(job.id);
       }
@@ -140,16 +163,8 @@ async function processJob(payload: OutboxPayload): Promise<void> {
 
     case 'upload_blob': {
       const { localId, content, name } = payload;
-      // Notes upload as `.txt` (see deriveNoteUploadFileName). Must match
-      // server uploadValidation: .txt → text/plain, .md → text/markdown.
-      // Hardcoding text/markdown caused INVALID_CONTENT_TYPE after MIME hardening.
-      const lower = String(name ?? '').toLowerCase();
-      const blobMime = lower.endsWith('.md')
-        ? 'text/markdown'
-        : 'text/plain';
-      const blob = new Blob([content], { type: blobMime });
-      const { serverFileId } = await uploadBlob(blob, name, localId);
-      // Same as above: don't store the PUT presigned URL.
+      // String PUT — do not use Blob or FileSystem.uploadAsync on Expo Go.
+      const { serverFileId } = await uploadNoteText(String(content ?? ''), name, localId);
       await markFileSynced(localId, serverFileId, undefined);
       break;
     }
@@ -170,20 +185,68 @@ async function processJob(payload: OutboxPayload): Promise<void> {
     }
 
     case 'create_bundle': {
-      const { localBundleId, childLocalIds } = payload;
-      // Resolve opt-… ids to server ids via SQLite client_id after child uploads finish
-      const realIds = await resolveChildIdsForBundle(childLocalIds);
-      if (realIds.length < 2) {
-        throw new Error('create_bundle: not enough child ids');
-      }
-      const result = await createBundle(realIds);
+      const { localBundleId } = payload;
+      const row = await getBundleById(localBundleId);
+      const childLocalIds =
+        row?.bundledFileIds?.length
+          ? row.bundledFileIds
+          : payload.childLocalIds ?? [];
+      const folderName = String(row?.name ?? "").trim() || DEFAULT_LINQ_NAME;
+      const realIds =
+        childLocalIds.length > 0
+          ? await resolveChildIdsForBundle(childLocalIds)
+          : [];
+      const result = await createBundle(realIds, folderName, localBundleId);
       if (!result?.okay) throw new Error(result?.message ?? 'createBundle failed');
       const serverBundleId = result?.data?.bundle?.id;
       if (serverBundleId) {
         await markBundleSynced(localBundleId, serverBundleId, realIds);
+        invalidateBundleContentsCache(String(serverBundleId));
       } else {
         await markBundleSynced(localBundleId, undefined, realIds);
       }
+      break;
+    }
+
+    case 'add_to_bundle': {
+      const { bundleId, childLocalIds } = payload;
+      if (String(bundleId).startsWith('opt-')) {
+        throw new Error('add_to_bundle: bundle not synced yet');
+      }
+      const realIds = await resolveChildIdsForBundle(childLocalIds);
+      if (realIds.length === 0) return;
+      await addFilesToBundle(bundleId, realIds);
+      invalidateBundleContentsCache(bundleId);
+      break;
+    }
+
+    case 'remove_from_bundle': {
+      const { bundleId, childLocalIds } = payload;
+      if (String(bundleId).startsWith('opt-')) {
+        throw new Error('remove_from_bundle: bundle not synced yet');
+      }
+      const realIds = await resolveChildIdsForBundle(childLocalIds);
+      if (realIds.length === 0) return;
+      await removeFilesFromBundle(bundleId, realIds);
+      invalidateBundleContentsCache(bundleId);
+      break;
+    }
+
+    case 'rename_bundle': {
+      const { bundleId, name } = payload;
+      if (String(bundleId).startsWith('opt-')) {
+        throw new Error('rename_bundle: bundle not synced yet');
+      }
+      await renameFile(bundleId, name);
+      break;
+    }
+
+    case 'rename_file': {
+      const { fileId, name } = payload;
+      if (String(fileId).startsWith('opt-')) {
+        throw new Error('rename_file: file not synced yet');
+      }
+      await renameFile(fileId, name);
       break;
     }
 

@@ -55,7 +55,6 @@ export const FilesList = () => {
             const response = await fetch("/api/files/")
             const {data} = await response.json()
             SetFiles(data)
-            console.log(data)
         }
 
         getFiles()

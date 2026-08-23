@@ -17,6 +17,7 @@ import { upsertFile } from '../db/fileRepo';
 import { enqueue } from '../db/outbox';
 import { colorFromCategory } from '../utils/fileHelpers';
 import { persistListThumbnailFromFile } from '../utils/listThumbCache';
+import { stripImageLocation } from '../utils/fileHelpers';
 
 export type SaveLocalOpts = {
   /** Stable local id — prefer `newLocalFileId()` (UUID) so preview URLs match after sync. */
@@ -74,8 +75,12 @@ export async function saveLocal(opts: SaveLocalOpts): Promise<SaveLocalResult> {
   if (sourceUri) {
     await ensureOfflineDir();
     const ext = destExt ?? '.bin';
+    let fromUri = sourceUri;
+    if (String(type).toLowerCase() === 'image') {
+      fromUri = await stripImageLocation(sourceUri, ext);
+    }
     const destPath = `${OFFLINE_DIR}${localId}${ext}`;
-    await FileSystem.copyAsync({ from: sourceUri, to: destPath });
+    await FileSystem.copyAsync({ from: fromUri, to: destPath });
     localUri = destPath;
 
     if (String(type).toLowerCase() === 'image') {
@@ -108,6 +113,18 @@ export async function saveLocal(opts: SaveLocalOpts): Promise<SaveLocalResult> {
   }
 
   return { localId, localUri };
+}
+
+/** Delete offline binaries copied for outbox upload. Call on logout with cache wipe. */
+export async function clearOfflineDir(): Promise<void> {
+  try {
+    const info = await FileSystem.getInfoAsync(OFFLINE_DIR);
+    if (info.exists) {
+      await FileSystem.deleteAsync(OFFLINE_DIR, { idempotent: true });
+    }
+  } catch {
+    // Ignore: logout should still continue.
+  }
 }
 
 /**

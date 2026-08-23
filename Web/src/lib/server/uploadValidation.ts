@@ -4,6 +4,26 @@ export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const SEARCH_EXTRACT_MAX_CHARS = 64 * 1024;
 /** Max search query length. */
 export const MAX_SEARCH_QUERY_CHARS = 100;
+export const MAX_DISPLAY_NAME = 80;
+
+/** Strip control chars and header-breaking characters. Keeps normal titles. */
+export function sanitizeDisplayName(
+  name: string,
+  max = MAX_DISPLAY_NAME
+): string {
+  return String(name ?? "")
+    .replace(/[\u0000-\u001f\u007f"<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+/** ASCII filename for Content-Disposition (no CR/LF/quotes). */
+export function safeContentDispositionFilename(name: string): string {
+  const cleaned = sanitizeDisplayName(name).replace(/[/\\]/g, "-");
+  const ascii = cleaned.replace(/[^\w.\- ]+/g, "_").trim() || "download";
+  return ascii.slice(0, MAX_DISPLAY_NAME);
+}
 
 export const ALLOWED_EXTENSIONS = new Set([
   "jpg",

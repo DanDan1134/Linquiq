@@ -15,6 +15,7 @@
  *      ├─ OPEN FILE      beach.jpg · read from phone storage · 61ms (total 61ms)
  */
 import { truncateNameForLog } from "./helpers";
+import { devLog, errorMessage } from "./safeLog";
 
 /** Above this a step is called SLOW; above 4x this it is called VERY SLOW. */
 const SLOW_MS = 400;
@@ -61,23 +62,24 @@ export function track(action: string, detail?: string): PerfTracker {
       const now = Date.now();
       const sinceStep = now - lastStepAt;
       lastStepAt = now;
-      console.log(
+      devLog(
         `   ├─ ${pad(action)} ${subject}${label} · ${sinceStep}ms (total ${now - startedAt}ms)`
       );
     },
     done(label?: string) {
       const total = Date.now() - startedAt;
       const tail = label ? `${label} · ` : "";
-      console.log(`${speedTag(total)} ${pad(action)} ${subject}${tail}${total}ms`);
+      devLog(`${speedTag(total)} ${pad(action)} ${subject}${tail}${total}ms`);
       return total;
     },
     fail(label: string, error?: unknown) {
       const total = Date.now() - startedAt;
-      const reason =
-        error instanceof Error ? error.message : error != null ? String(error) : "";
-      console.warn(
-        `❌ FAILED ${pad(action)} ${subject}${label} · ${total}ms${reason ? ` · ${reason}` : ""}`
-      );
+      const reason = error != null ? errorMessage(error) : "";
+      if (__DEV__) {
+        console.warn(
+          `❌ FAILED ${pad(action)} ${subject}${label} · ${total}ms${reason ? ` · ${reason}` : ""}`
+        );
+      }
     },
     elapsed() {
       return Date.now() - startedAt;
@@ -104,7 +106,7 @@ export async function timed<T>(
 
 /** One-shot line for work already timed elsewhere. */
 export function logDuration(action: string, detail: string, ms: number) {
-  console.log(`${speedTag(ms)} ${pad(action)} ${detail} · ${ms}ms`);
+  devLog(`${speedTag(ms)} ${pad(action)} ${detail} · ${ms}ms`);
 }
 
 // ── Legacy helpers (still used by sync / upload code) ────────────────────────
@@ -131,7 +133,7 @@ export function logLinqOpenStep(
   const total = Date.now() - openStartedAt;
   const step =
     stepStartedAt !== undefined ? ` · ${Date.now() - stepStartedAt}ms` : "";
-  console.log(`   ├─ ${pad("OPEN LINQ")} "${title}" · ${message} · total ${total}ms${step}`);
+  devLog(`   ├─ ${pad("OPEN LINQ")} "${title}" · ${message} · total ${total}ms${step}`);
 }
 
 /** Last n chars of an id for logs (avoids dumping full UUIDs). */
@@ -143,7 +145,7 @@ export function idSuffixForLog(id: unknown, n = 6): string {
 }
 
 export function logUploadPipeline(
-  kind: "file" | "blob",
+  kind: "file" | "blob" | "note",
   fileLabel: string,
   stages: {
     convert?: number;

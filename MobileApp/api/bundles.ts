@@ -1,17 +1,58 @@
 import { categoryFromExt, colorFromCategory } from '../utils/fileHelpers';
+import {
+  DEFAULT_LINQ_NAME,
+  resolveLinqDisplayName,
+  isShareableEntryId,
+} from '../utils/helpers';
 import * as filesApi from './files';
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, apiDelete } from './client';
 import { dedupe } from '../utils/inflight';
+import { idForLog, logSafeWarn } from '../utils/safeLog';
 
-export async function createBundle(serverIds: string[]): Promise<{
+export async function createBundle(
+  serverIds: string[],
+  name?: string,
+  /** Client-generated UUID — server stores this id so preview URL is stable offline. */
+  bundleId?: string
+): Promise<{
   okay: boolean
   message: string
   data: { bundle: any; links: any[] }
 }> {
-  if (!serverIds || serverIds.length < 2) {
-    throw new Error('Select at least two items to create a linq')
+  const body: Record<string, unknown> = {
+    file_ids: serverIds ?? [],
+    name: String(name ?? "").trim() || DEFAULT_LINQ_NAME,
+  };
+  const clientId = String(bundleId ?? "").trim();
+  if (clientId && isShareableEntryId(clientId)) {
+    body.bundle_id = clientId;
   }
-  return apiPost(`/files/connect`, { file_ids: serverIds }) as any
+  return apiPost(`/files/connect`, body) as any
+}
+
+export async function addFilesToBundle(
+  bundleId: string,
+  fileIds: string[]
+): Promise<{ message?: string }> {
+  const id = String(bundleId ?? "").trim();
+  const ids = (fileIds ?? []).map((x) => String(x).trim()).filter(Boolean);
+  if (!id || ids.length === 0) return { message: "noop" };
+  return apiPost(`/files/link`, {
+    links: ids.map((file_to) => ({ file_from: id, file_to })),
+  }) as any;
+}
+
+/** DELETE /api/files/link — remove children from a linq without deleting files. */
+export async function removeFilesFromBundle(
+  bundleId: string,
+  fileIds: string[]
+): Promise<{ okay?: boolean; message?: string }> {
+  const id = String(bundleId ?? "").trim();
+  const ids = (fileIds ?? []).map((x) => String(x).trim()).filter(Boolean);
+  if (!id || ids.length === 0) return { okay: true, message: "noop" };
+  return apiDelete(`/files/link`, {
+    links: ids.map((file_to) => ({ file_from: id, file_to })),
+  }) as any;
 }
 
 type FilesBundleResponse = {
@@ -108,7 +149,7 @@ export function getContents(bundleId: string): Promise<{
     contentsCache.set(bundleId, { data: result, cachedAt: Date.now() });
     return result;
   } catch (err) {
-    console.warn(`getContents(${bundleId}) failed (JSON):`, (err as any)?.message ?? err);
+    logSafeWarn(`getContents id${idForLog(bundleId)} failed`, err);
     return {};
   }
   }); // end dedupe
@@ -206,7 +247,7 @@ export async function getNestedContents(bundleId: string, maxDepth = 1): Promise
               }
             }
           } catch (e) {
-            console.warn(`getById(${childId}) failed:`, e);
+            logSafeWarn(`getById id${idForLog(childId)} failed`, e);
           }
         }
 
@@ -251,7 +292,7 @@ export async function getNestedContents(bundleId: string, maxDepth = 1): Promise
         }
         const nestedCount = nestedFiles.length || nestedBundledFileIds.length;
 
-        const cleanedName = (name === 'Bundle' || name === 'bundle') ? 'linq' : name;
+        const cleanedName = resolveLinqDisplayName(name);
 
         return {
           id: childId,                           // UUID string
@@ -280,7 +321,7 @@ export async function getNestedContents(bundleId: string, maxDepth = 1): Promise
       bundledUrls: base.bundledUrls ?? [],
     };
   } catch (err) {
-    console.warn(`Failed to fetch nested bundle contents for ${bundleId}:`, err);
+    logSafeWarn(`nested bundle contents id${idForLog(bundleId)} failed`, err);
     return { files: [], bundledFileIds: [], bundledUrls: [] };
   }
 }

@@ -18,7 +18,7 @@ npm run dev
 
 - Local app: `http://localhost:3000`
 - API base (local): `http://localhost:3000/api`
-- Production example: `https://linquiq-sigma.vercel.app`
+- Production example: `https://linquiq.com`
 
 ## Run Mobile
 
@@ -30,7 +30,7 @@ npx expo start
 
 - Then press `i` (iOS simulator), `a` (Android), or scan the QR code in Expo Go
 - Mobile talks to the Web API via `API_BASE` in `MobileApp/api/client.ts`
-- Default production base: `https://linquiq-sigma.vercel.app` (no trailing slash)
+- Default production base: `https://linquiq.com` (no trailing slash)
 - For local API testing, point `API_BASE` at your machine/LAN URL (for example `http://10.x.x.x:3000`)
 - Clerk publishable key on mobile must match the same Clerk app as Web/Vercel
 
@@ -43,7 +43,7 @@ Base URL:
 | Environment | Base |
 |---|---|
 | Local Web | `http://localhost:3000` |
-| Production | `https://linquiq-sigma.vercel.app` |
+| Production | `https://linquiq.com` |
 
 All routes below are under `/api`.
 
@@ -58,7 +58,7 @@ All routes below are under `/api`.
 | `POST` | `/api/files/verify` | Confirm S3 objects and create DB entries |
 | `POST` | `/api/files/link` | Link two owned files |
 | `POST` | `/api/files/connect` | Create a bundle from owned file IDs |
-| `GET` | `/api/tests` | Simple auth/health-style test route |
+| `POST` | `/api/account/delete` | Delete the signed-in user's files and Clerk account |
 
 Upload flow (high level):
 

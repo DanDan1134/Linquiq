@@ -1,7 +1,7 @@
 "use client"
 import type { File } from "@/app/components/State Manager/appManager"
 import { useFileStore } from "../../components/State Manager/appManager"
-import Bundle from "@/lib/server/Bundle/bundle"
+import createLinq from "@/lib/server/Linq/createLinq"
 
 
 export const LinqButton = ({ compact }: { compact?: boolean } = {}) => {
@@ -17,19 +17,19 @@ export const LinqButton = ({ compact }: { compact?: boolean } = {}) => {
         aria-label="Linq"
         style={{ ...(compact ? { marginRight: 0, padding: "0.25rem 0.4rem" } : {}), position: "relative" }}
         onClick={async () => {
-            if(selectedFiles.size > 0) {
-                SetActionLoading(true, "Linqing files...")
-                try {
-                    // creates a bundle of the selected files
-                    const bundle = await Bundle(Array.from(selectedFiles))
-                    ClearSelection()
-                    //if the bundle is created, update the files state with the new bundle
-                    if (bundle?.bundle) {
-                        UpdateFiles([bundle.bundle as unknown as File])
-                    }
-                } finally {
-                    SetActionLoading(false)
+            const name = window.prompt("Name this linq", "linq");
+            if (name == null) return;
+            const folderName = name.trim().slice(0, 80) || "linq";
+            SetActionLoading(true, "Creating linq...")
+            try {
+                const created = await createLinq(Array.from(selectedFiles), folderName)
+                ClearSelection()
+                const row = created?.linq ?? created?.bundle
+                if (row) {
+                    UpdateFiles([row as unknown as File])
                 }
+            } finally {
+                SetActionLoading(false)
             }
         }}
     >

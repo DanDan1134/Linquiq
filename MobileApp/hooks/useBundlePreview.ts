@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { API_BASE } from '../api/client'; // site origin (no /api)
 import * as filesApi from '../api/files'; // getById(id: string)
 import { useAuth } from '@clerk/clerk-expo';
+import { resolveLinqDisplayName, DEFAULT_LINQ_NAME } from '../utils/helpers';
 
 
 function decodeHtmlEntities(s?: string | null): string {
@@ -183,7 +184,7 @@ export function useBundlePreview() {
       const bundleId = String(original?.id ?? bundleServerId);
 
       setData({
-        name: (bundleName === 'Bundle' || bundleName === 'bundle') ? 'linq' : bundleName,
+        name: resolveLinqDisplayName(bundleName),
         createdAt: bundleCreatedAt,
         creator: bundleCreator,
         bundledUrls,

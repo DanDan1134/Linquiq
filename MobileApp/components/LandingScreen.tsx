@@ -1,8 +1,8 @@
 /**
  * LandingScreen Component
  * - App title & description
- * - Social SSO (Apple/Google) right here
- * - Email flows still accessible via Log In / Sign Up buttons
+ * - Social SSO (Google) right here
+ * - Email sign-in via Log In. New accounts join the Clerk waitlist.
  */
 import React from "react";
 import { View, Text, TouchableOpacity, Image } from "react-native";
@@ -13,13 +13,13 @@ import { SocialButtons } from "./SocialButtons";
 
 interface LandingScreenProps {
   onLoginPress: () => void;
-  onSignUpPress: () => void;
-  onSocialSuccess: () => void; // <-- NEW
+  onWaitlistPress: () => void;
+  onSocialSuccess: () => void;
 }
 
 export const LandingScreen: React.FC<LandingScreenProps> = ({
   onLoginPress,
-  onSignUpPress,
+  onWaitlistPress,
   onSocialSuccess,
 }) => {
   return (
@@ -63,11 +63,11 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={onSignUpPress}
+          onPress={onWaitlistPress}
           className="border-2 border-button-outline rounded-md py-3 min-h-[52px] items-center justify-center"
           delayPressIn={0}
         >
-          <Text className="text-button-outline font-semibold">Sign Up</Text>
+          <Text className="text-button-outline font-semibold">Waitlist</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
