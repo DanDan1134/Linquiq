@@ -23,6 +23,7 @@ WebBrowser.maybeCompleteAuthSession();
 import { LandingScreen } from "./components/LandingScreen";
 import { LoginScreen } from "./components/LoginScreen";
 import { SignUpScreen } from "./components/SignUpScreen";
+import { WaitlistScreen } from "./components/WaitlistScreen";
 import { Header } from "./components/Header";
 import { FileList } from "./components/FileList"; // <- ensure this is the updated version (refreshing/onRefresh + safe selectedFiles)
 import { BottomNavigation } from "./components/BottomNavigation";
@@ -993,7 +994,7 @@ function WireClerkToken() {
 
 function AppContent() {
   // Screen routing
-  const [screen, setScreen] = useState<"landing" | "login" | "signup" | "home">(
+  const [screen, setScreen] = useState<"landing" | "login" | "signup" | "waitlist" | "home">(
     "landing"
   );
   
@@ -2755,7 +2756,7 @@ const filteredFiles = useMemo(() => {
     )
       .map((id: string) => String(id))
       .filter(Boolean);
-    const nextIds = currentIds.filter((id) => id !== removeId);
+    const nextIds = currentIds.filter((id: string) => id !== removeId);
     if (nextIds.length === currentIds.length) return;
 
     try {
@@ -2874,7 +2875,7 @@ const openBundleDetail = async (bundle: any) => {
         openedInstant = true;
         break;
       }
-      if (a < 21) await new Promise((r) => setTimeout(r, 220));
+      if (a < 21) await new Promise<void>((resolve) => setTimeout(() => resolve(), 220));
     }
     if (openedInstant) {
       openingBundleIdRef.current = null;
@@ -3081,7 +3082,7 @@ const openBundleDetail = async (bundle: any) => {
           startedAt,
           attemptStart
         );
-        await new Promise((r) => setTimeout(r, HYDRATE_BACKOFF_MS));
+        await new Promise<void>((resolve) => setTimeout(() => resolve(), HYDRATE_BACKOFF_MS));
       }
     }
     logPerf(
@@ -3291,15 +3292,18 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
                 oldBundleIds.map((id) => filesApi.deleteFileById(id))
               );
               const deleteFailures = deleteResults
-                .map((res, idx) => ({ res, id: oldBundleIds[idx] }))
-                .filter((x) => x.res.status === "rejected");
+                .map((res: PromiseSettledResult<unknown>, idx: number) => ({
+                  res,
+                  id: oldBundleIds[idx],
+                }))
+                .filter((x: { res: PromiseSettledResult<unknown> }) => x.res.status === "rejected");
               if (deleteFailures.length === 0) {
                 devLog(`[linq·extract] removed old linqs`);
               } else {
-                deleteFailures.forEach(({ res, id }) => {
+                deleteFailures.forEach(({ res, id }: { res: PromiseSettledResult<unknown>; id: string }) => {
                   logSafeWarn(
                     `[linq·extract] delete old id${idSuffixForLog(id)} failed`,
-                    (res as PromiseRejectedResult).reason
+                    res.status === "rejected" ? res.reason : undefined
                   );
                 });
               }
@@ -3569,6 +3573,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     return (
       <LandingScreen
         onLoginPress={() => setScreen("login")}
+        onWaitlistPress={() => setScreen("waitlist")}
         onSocialSuccess={() => handleLoginSuccess()}
       />
     );

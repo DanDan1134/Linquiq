@@ -6,7 +6,8 @@
  * It is safe to call concurrently — a guard flag prevents double-runs.
  */
 
-import { uploadFile, uploadBlob } from '../api/upload';
+import { uploadFile } from '../api/upload';
+import * as FileSystem from 'expo-file-system/legacy';
 import { logPerf } from '../utils/perfLog';
 import { errorMessage } from '../utils/safeLog';
 import { DEFAULT_LINQ_NAME, truncateNameForLog } from '../utils/helpers';
@@ -162,17 +163,20 @@ async function processJob(payload: OutboxPayload): Promise<void> {
 
     case 'upload_blob': {
       const { localId, content, name } = payload;
-      // Notes upload as `.txt` (see deriveNoteUploadFileName). Must match
-      // server uploadValidation: .txt → text/plain, .md → text/markdown.
-      // Hardcoding text/markdown caused INVALID_CONTENT_TYPE after MIME hardening.
+      // Notes: write a temp file and use uploadFile. `new Blob()` + XHR in
+      // React Native/Expo Go can freeze or kill the process on first sync.
       const lower = String(name ?? '').toLowerCase();
-      const blobMime = lower.endsWith('.md')
-        ? 'text/markdown'
-        : 'text/plain';
-      const blob = new Blob([content], { type: blobMime });
-      const { serverFileId } = await uploadBlob(blob, name, localId);
-      // Same as above: don't store the PUT presigned URL.
-      await markFileSynced(localId, serverFileId, undefined);
+      const ext = lower.endsWith('.md') ? '.md' : '.txt';
+      const tmp = `${FileSystem.cacheDirectory ?? ''}outbox_${localId}${ext}`;
+      await FileSystem.writeAsStringAsync(tmp, String(content ?? ''), {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      try {
+        const { serverFileId } = await uploadFile(tmp, name, localId);
+        await markFileSynced(localId, serverFileId, undefined);
+      } finally {
+        await FileSystem.deleteAsync(tmp, { idempotent: true }).catch(() => undefined);
+      }
       break;
     }
 

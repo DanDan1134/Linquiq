@@ -5,7 +5,7 @@
  * - Email sign-in via Log In. New accounts join the Clerk waitlist.
  */
 import React from "react";
-import { View, Text, TouchableOpacity, Image, Alert } from "react-native";
+import { View, Text, TouchableOpacity, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import "../global.css";
@@ -13,11 +13,13 @@ import { SocialButtons } from "./SocialButtons";
 
 interface LandingScreenProps {
   onLoginPress: () => void;
+  onWaitlistPress: () => void;
   onSocialSuccess: () => void;
 }
 
 export const LandingScreen: React.FC<LandingScreenProps> = ({
   onLoginPress,
+  onWaitlistPress,
   onSocialSuccess,
 }) => {
   return (
@@ -61,12 +63,7 @@ export const LandingScreen: React.FC<LandingScreenProps> = ({
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() =>
-            Alert.alert(
-              "Waitlist",
-              "This test is waitlist-only. Use Log In after you are approved in Clerk."
-            )
-          }
+          onPress={onWaitlistPress}
           className="border-2 border-button-outline rounded-md py-3 min-h-[52px] items-center justify-center"
           delayPressIn={0}
         >
