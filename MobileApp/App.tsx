@@ -2090,20 +2090,28 @@ const filteredFiles = useMemo(() => {
   const clerkEmail = user?.primaryEmailAddress?.emailAddress;
   const clerkUserId = user?.id;
 
-  // Boot-time restore: auto sign-in if token exists
+  // Restore home only for a real Clerk session with an email.
+  // Do not send waitlist/login back to landing when signed out.
+  // Do not send a deleted/empty user to home (blank name + settings icon).
   useEffect(() => {
-    // Wait until Clerk finishes loading the user
     if (!userLoaded) return;
-    if (isSignedIn) {
-      setIsLoggedIn(true);
-      setEmail(clerkEmail ?? undefined);
-      setScreen("home");
-    } else {
-      setIsLoggedIn(false);
-      setScreen("landing");
-    }
     setBooting(false);
-  }, [isSignedIn, userLoaded, clerkEmail, clerkUserId]);
+
+    if (isSignedIn) {
+      const emailAddr = String(clerkEmail ?? "").trim();
+      if (!emailAddr) {
+        void signOut().catch(() => undefined);
+        return;
+      }
+      setIsLoggedIn(true);
+      setEmail(emailAddr);
+      setScreen("home");
+      return;
+    }
+
+    setIsLoggedIn(false);
+    setScreen((current) => (current === "home" ? "landing" : current));
+  }, [isSignedIn, userLoaded, clerkEmail, clerkUserId, signOut]);
 
 
   // ---- Initial list load — local SQLite only. Network sync is manual. ----
@@ -3604,6 +3612,10 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     );
   }
 
+  if (screen === "waitlist") {
+    return <WaitlistScreen onBackPress={() => setScreen("landing")} />;
+  }
+
   // ===== Main home =====
   return (
     <SafeAreaView className="flex-1 bg-background">
@@ -3839,11 +3851,15 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
         onDeleteAccount={async () => {
           try {
             await filesApi.deleteAccount();
-            await signOut();
           } catch (e: unknown) {
             const message = e instanceof Error ? e.message : "Could not delete account";
             Alert.alert("Error", message);
             return;
+          }
+          try {
+            await signOut();
+          } catch {
+            // User row is already gone on Clerk; still clear local session.
           }
           setIsSettingsModalVisible(false);
           await handleLogout();

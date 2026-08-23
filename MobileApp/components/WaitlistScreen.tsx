@@ -71,7 +71,7 @@ async function joinClerkWaitlist(emailAddress: string): Promise<void> {
 }
 
 export const WaitlistScreen: React.FC<WaitlistScreenProps> = ({ onBackPress }) => {
-  const { isLoaded, signUp } = useSignUp();
+  const { isLoaded } = useSignUp();
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [joined, setJoined] = useState(false);
@@ -84,16 +84,12 @@ export const WaitlistScreen: React.FC<WaitlistScreenProps> = ({ onBackPress }) =
     }
     setBusy(true);
     try {
-      try {
-        await joinClerkWaitlist(emailAddress);
-      } catch {
-        if (!isLoaded || !signUp) throw new Error("Waitlist is not ready yet.");
-        await signUp.create({ emailAddress });
-      }
+      if (!isLoaded) throw new Error("Waitlist is not ready yet.");
+      await joinClerkWaitlist(emailAddress);
       setJoined(true);
     } catch (e: unknown) {
       const msg = clerkErrorMessage(e);
-      if (/already/i.test(msg) || /waitlist/i.test(msg)) {
+      if (/already/i.test(msg)) {
         setJoined(true);
         return;
       }
