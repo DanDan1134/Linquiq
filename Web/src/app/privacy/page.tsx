@@ -172,7 +172,7 @@ export default function PrivacyPolicyPage() {
             These providers are authorized to process data only as needed to
             provide services to us, under their own security and privacy
             obligations. Google may also process information when you
-            choose to sign in with Google, under Google's policies.
+            choose to sign in with Google, under Google policies.
           </p>
         </section>
 
