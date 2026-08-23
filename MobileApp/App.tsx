@@ -2356,7 +2356,7 @@ const filteredFiles = useMemo(() => {
         const existing = String(merged?.url ?? url ?? "").trim();
         const looksLikeSitePreview =
           /\/preview\/[^/?#]+/i.test(existing) ||
-          existing.includes("linquiq-sigma.vercel.app/preview/");
+          existing.includes(`${API_BASE}/preview/`);
         if (existing && !looksLikeSitePreview) {
           url = existing;
         } else if (isInlineText) {

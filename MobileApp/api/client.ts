@@ -1,4 +1,4 @@
-export const API_BASE = "https://linquiq-sigma.vercel.app"; // Vercel deploy (no trailing slash)
+export const API_BASE = "https://linquiq.com"; // Production (no trailing slash)
 
 // ---- Token getter ----
 let getTokenFn: (opts?: any) => Promise<string | null> = async () => null;
