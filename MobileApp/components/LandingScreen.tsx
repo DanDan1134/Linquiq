@@ -1,7 +1,7 @@
 /**
  * LandingScreen Component
  * - App title & description
- * - Social SSO (Apple/Google) right here
+ * - Social SSO (Google) right here
  * - Email sign-in via Log In. New accounts join the Clerk waitlist.
  */
 import React from "react";

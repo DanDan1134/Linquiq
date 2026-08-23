@@ -60,7 +60,7 @@ export default function PrivacyPolicyPage() {
               your account.
             </li>
             <li>
-              <strong>Name</strong> — when provided by Apple or Google sign-in
+              <strong>Name</strong> — when provided by Google sign-in
               (or if you enter it yourself).
             </li>
             <li>
@@ -157,7 +157,7 @@ export default function PrivacyPolicyPage() {
           <ul>
             <li>
               <strong>Clerk</strong> — authentication and account sign-in
-              (email/password, Apple, Google).
+              (email/password, Google).
             </li>
             <li>
               <strong>Vercel</strong> — hosts the website and API.
@@ -171,9 +171,8 @@ export default function PrivacyPolicyPage() {
           <p>
             These providers are authorized to process data only as needed to
             provide services to us, under their own security and privacy
-            obligations. Apple and Google may also process information when you
-            choose to sign in with those services, under their respective
-            policies.
+            obligations. Google may also process information when you
+            choose to sign in with Google, under Google's policies.
           </p>
         </section>
 

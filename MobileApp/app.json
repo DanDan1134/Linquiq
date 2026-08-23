@@ -16,7 +16,6 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.q2l.linquiq",
-      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "UIFileSharingEnabled": false,
@@ -52,7 +51,6 @@
       "expo-secure-store",
       "expo-audio",
       "expo-video",
-      "expo-apple-authentication",
       "expo-sqlite"
     ],
     "extra": {
