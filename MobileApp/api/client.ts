@@ -2,7 +2,14 @@ export const API_BASE = "https://linquiq.com"; // Production (no trailing slash)
 
 // ---- Token getter ----
 let getTokenFn: (opts?: any) => Promise<string | null> = async () => null;
-export function setTokenGetter(fn: typeof getTokenFn) { getTokenFn = fn }
+export function setTokenGetter(fn: typeof getTokenFn) {
+  getTokenFn = fn;
+  cachedAuth = null;
+}
+
+export function clearTokenCache() {
+  cachedAuth = null;
+}
 
 /** Reuse JWT briefly during sync bursts to avoid Clerk round-trips per N+1 call. */
 const TOKEN_CACHE_TTL_MS = 10_000;

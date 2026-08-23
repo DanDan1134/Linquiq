@@ -981,10 +981,13 @@ function enrichBundleFileTypeColors(files: any[] | undefined): any[] {
 }
 
 function WireClerkToken() {
-  const { getToken } = useAuth()
+  const { getToken, isSignedIn } = useAuth()
   React.useEffect(() => {
-    setTokenGetter(getToken)
-  }, [getToken])
+    setTokenGetter(async (opts?: { skipCache?: boolean }) => {
+      if (!isSignedIn) return null;
+      return getToken({ skipCache: true, ...opts });
+    })
+  }, [getToken, isSignedIn])
   return null
 }
 
@@ -1122,6 +1125,9 @@ function AppContent() {
       const selectedIds = linqNameModal.selectedIds;
       const typed = String(folderName ?? "").trim().slice(0, 80);
       const name = typed || DEFAULT_LINQ_NAME;
+      const linqFiles = selectedIds
+        .map((id) => fileById.get(id) ?? bundles.find((b: any) => String(b.id) === id))
+        .filter(Boolean);
       setLinqNameModal({ visible: false, preset: "", selectedIds: [] });
       try {
         const localBundleId = newLocalFileId();

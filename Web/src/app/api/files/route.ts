@@ -1,9 +1,9 @@
-import { auth } from "@clerk/nextjs/server"
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { entryTable, linkTable } from "@/db/schema";
 import { isLinqType } from "@/lib/linqType";
+import { getAuthedUserId } from "@/lib/server/getAuthedUserId";
 
 /** Keep list payloads small — full text is loaded on open/search. */
 const LIST_DESCRIPTION_MAX = 200;
@@ -15,8 +15,8 @@ function truncateDescription(value: string | null | undefined): string | null {
     return `${text.slice(0, LIST_DESCRIPTION_MAX)}…`;
 }
 
-export async function GET() {
-    const { userId } = await auth();
+export async function GET(request: NextRequest) {
+    const userId = await getAuthedUserId(request);
 
     if (!userId) {
         return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
