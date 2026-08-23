@@ -1,4 +1,12 @@
-export const API_BASE = "https://linquiq.com"; // Production (no trailing slash)
+/**
+ * Must be the canonical host. `linquiq.com` answers every /api call with a 308 to
+ * `www.linquiq.com`, and iOS URLSession drops `Authorization` across that origin
+ * change — so the retried request arrives unauthenticated and the API returns 401.
+ */
+export const API_BASE = "https://www.linquiq.com"; // Production (no trailing slash)
+
+/** Ceiling for any single API call so a stalled request can't wedge sync forever. */
+const REQUEST_TIMEOUT_MS = 30_000;
 
 // ---- Token getter ----
 let getTokenFn: (opts?: any) => Promise<string | null> = async () => null;
@@ -15,13 +23,45 @@ export function clearTokenCache() {
 const TOKEN_CACHE_TTL_MS = 10_000;
 let cachedAuth: { jwt: string; at: number } | null = null;
 
+/** Clerk's getToken can stay pending indefinitely after a sign-out/sign-in cycle. */
+const TOKEN_TIMEOUT_MS = 15_000;
+
+/**
+ * Race a promise against a timer without leaking the loser.
+ * An uncleared `reject()` after getToken wins becomes an unhandled rejection
+ * in Expo Go and kills the JS runtime mid-sync.
+ */
+async function raceWithTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms / 1000}s`)),
+      ms
+    );
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    work.catch(() => undefined);
+  }
+}
+
 async function authHeader(): Promise<Record<string, string>> {
   const now = Date.now();
   if (cachedAuth && now - cachedAuth.at < TOKEN_CACHE_TTL_MS) {
     return { Authorization: `Bearer ${cachedAuth.jwt}` };
   }
   // Fresh token when cache misses — avoids stale/empty sessions after Clerk domain/key changes.
-  const jwt = await getTokenFn?.({ skipCache: true });
+  const jwt = await raceWithTimeout(
+    Promise.resolve(getTokenFn?.({ skipCache: true }) ?? null),
+    TOKEN_TIMEOUT_MS,
+    "Clerk getToken"
+  );
   if (!jwt) {
     cachedAuth = null;
     console.warn(
@@ -67,7 +107,12 @@ function parseJsonOrThrow(path: string, status: number, text: string): any {
   }
 }
 
-async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
+/**
+ * One authenticated API call, body included, under a single timeout.
+ * Reading the body is inside the timeout too — a stalled response stream is just
+ * as capable of freezing sync as a stalled request.
+ */
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = {
     ...(await authHeader()),
     ...(init?.headers as Record<string, string> | undefined),
@@ -77,50 +122,58 @@ async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
       `${path} failed: no Clerk token (not signed in, or tokenCache empty after key/domain change — sign out and sign in)`
     );
   }
-  return fetch(buildApiUrl(path), { ...init, headers });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const url = buildApiUrl(path);
+    const res = await fetch(url, { ...init, headers, signal: controller.signal });
+    const text = await res.text().catch(() => "");
+
+    // A redirect that survives to here means fetch changed origin; iOS will have
+    // dropped Authorization on the way, so report the real cause instead of "401".
+    const finalUrl = String((res as { url?: string }).url ?? "");
+    if (finalUrl && !finalUrl.startsWith(API_BASE)) {
+      throw new Error(
+        `${path} was redirected from ${API_BASE} to ${finalUrl} — auth headers are lost across origins. Point API_BASE at the canonical host.`
+      );
+    }
+    if (!res.ok) {
+      throw new Error(`${path} failed: ${res.status} ${text.slice(0, 200)}`);
+    }
+    return parseJsonOrThrow(path, res.status, text) as T;
+  } catch (err) {
+    if ((err as { name?: string })?.name === "AbortError") {
+      throw new Error(`${path} timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---- JSON helpers (API) ----
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetchApi(path);
-  const text = await res.text().catch(() => "");
-  if (!res.ok) throw new Error(`${path} failed: ${res.status} ${text.slice(0, 200)}`);
-  return parseJsonOrThrow(path, res.status, text) as T;
+  return requestJson<T>(path);
 }
 export async function apiPost<T>(path: string, payload: unknown): Promise<T> {
-  const res = await fetchApi(path, {
+  return requestJson<T>(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  const text = await res.text().catch(() => "");
-  if (!res.ok) throw new Error(`${path} failed: ${res.status} ${text.slice(0, 200)}`);
-  return parseJsonOrThrow(path, res.status, text) as T;
 }
 export async function apiPatch<T>(path: string, payload: unknown): Promise<T> {
-  const controller = new AbortController();
-  const to = setTimeout(() => controller.abort(), 30000);
-  try {
-    const res = await fetchApi(path, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    const text = await res.text().catch(() => "");
-    if (!res.ok) throw new Error(`${path} failed: ${res.status} ${text.slice(0, 200)}`);
-    return parseJsonOrThrow(path, res.status, text) as T;
-  } finally {
-    clearTimeout(to);
-  }
+  return requestJson<T>(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 export async function apiDelete<T>(path: string, payload?: unknown): Promise<T> {
-  const res = await fetchApi(path, {
+  return requestJson<T>(path, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: payload ? JSON.stringify(payload) : undefined,
   });
-  const text = await res.text().catch(() => "");
-  if (!res.ok) throw new Error(`${path} failed: ${res.status} ${text.slice(0, 200)}`);
-  return parseJsonOrThrow(path, res.status, text) as T;
 }

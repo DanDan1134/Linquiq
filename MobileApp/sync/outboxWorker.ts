@@ -6,10 +6,9 @@
  * It is safe to call concurrently — a guard flag prevents double-runs.
  */
 
-import { uploadFile } from '../api/upload';
-import * as FileSystem from 'expo-file-system/legacy';
+import { uploadFile, uploadNoteText } from '../api/upload';
 import { logPerf } from '../utils/perfLog';
-import { errorMessage } from '../utils/safeLog';
+import { devLog, errorMessage } from '../utils/safeLog';
 import { DEFAULT_LINQ_NAME, truncateNameForLog } from '../utils/helpers';
 import { deleteFileById, renameFile } from '../api/files';
 import { createBundle, addFilesToBundle, removeFilesFromBundle, invalidateBundleContentsCache } from '../api/bundles';
@@ -108,6 +107,7 @@ export async function drainOutbox(): Promise<void> {
                     ? 'rename_file'
                     : String(job.op);
       const jobStarted = Date.now();
+      devLog(`[outbox] start ${payload.op} · ${jobLabel}`);
       try {
         await processJob(payload);
         await removeJob(job.id);
@@ -163,20 +163,9 @@ async function processJob(payload: OutboxPayload): Promise<void> {
 
     case 'upload_blob': {
       const { localId, content, name } = payload;
-      // Notes: write a temp file and use uploadFile. `new Blob()` + XHR in
-      // React Native/Expo Go can freeze or kill the process on first sync.
-      const lower = String(name ?? '').toLowerCase();
-      const ext = lower.endsWith('.md') ? '.md' : '.txt';
-      const tmp = `${FileSystem.cacheDirectory ?? ''}outbox_${localId}${ext}`;
-      await FileSystem.writeAsStringAsync(tmp, String(content ?? ''), {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-      try {
-        const { serverFileId } = await uploadFile(tmp, name, localId);
-        await markFileSynced(localId, serverFileId, undefined);
-      } finally {
-        await FileSystem.deleteAsync(tmp, { idempotent: true }).catch(() => undefined);
-      }
+      // String PUT — do not use Blob or FileSystem.uploadAsync on Expo Go.
+      const { serverFileId } = await uploadNoteText(String(content ?? ''), name, localId);
+      await markFileSynced(localId, serverFileId, undefined);
       break;
     }
 

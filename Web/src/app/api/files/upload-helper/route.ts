@@ -1,6 +1,6 @@
-import { auth } from "@clerk/nextjs/server";
 import crypto from "crypto";
 import { genPresignedUrl } from "@/lib/server/s3/module.genPresignedUrl";
+import { getAuthedUserId } from "@/lib/server/getAuthedUserId";
 import { logSafeError } from "@/lib/safeLog";
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -15,7 +15,7 @@ import {
  * Clients must POST file metadata so Content-Type and Content-Length are signed.
  */
 export async function POST(request: NextRequest) {
-  const { userId } = await auth();
+  const userId = await getAuthedUserId(request);
 
   if (!userId) {
     return new Response("Unauthorized", { status: 401 });

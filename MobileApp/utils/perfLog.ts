@@ -145,7 +145,7 @@ export function idSuffixForLog(id: unknown, n = 6): string {
 }
 
 export function logUploadPipeline(
-  kind: "file" | "blob",
+  kind: "file" | "blob" | "note",
   fileLabel: string,
   stages: {
     convert?: number;

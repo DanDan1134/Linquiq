@@ -40,7 +40,7 @@ import {
   SubmissionTimeFilter,
 } from "./components/SearchFilterModal";
 import { useVoiceRecord } from "./components/VoiceRecord";
-import { setTokenGetter } from './api/client'
+import { setTokenGetter, clearTokenCache } from './api/client'
 import { clearAllInflight } from './utils/inflight'
 import { clearUrlCache } from './utils/urlCache'
 import {
@@ -986,7 +986,11 @@ function WireClerkToken() {
   React.useEffect(() => {
     setTokenGetter(async (opts?: { skipCache?: boolean }) => {
       if (!isSignedIn) return null;
-      return getToken({ skipCache: true, ...opts });
+      try {
+        return await getToken({ skipCache: true, ...opts });
+      } catch {
+        return null;
+      }
     })
   }, [getToken, isSignedIn])
   return null
@@ -3498,6 +3502,9 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     setUserFiles([]);
     setScreen("landing");
     setInitialListLoaded(false);
+    // Drop the previous user's JWT immediately — otherwise the next account's
+    // first sync can reuse it while the 10s token cache is still warm.
+    clearTokenCache();
     try {
       await clearAllLocalData();
       await clearDownloadCache();

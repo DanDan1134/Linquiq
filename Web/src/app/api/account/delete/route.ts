@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { NextRequest, NextResponse } from "next/server";
+import { clerkClient } from "@clerk/nextjs/server";
+import { getAuthedUserId } from "@/lib/server/getAuthedUserId";
 import {
   DeleteObjectsCommand,
   ListObjectsV2Command,
@@ -38,8 +39,8 @@ async function deleteS3Prefix(userId: string): Promise<void> {
 }
 
 /** Deletes this user's files, S3 objects, and Clerk account. */
-export async function POST() {
-  const { userId } = await auth();
+export async function POST(request: NextRequest) {
+  const userId = await getAuthedUserId(request);
   if (!userId) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
@@ -61,7 +62,11 @@ export async function POST() {
       await db.delete(entryTable).where(eq(entryTable.owner_id, userId));
     }
 
-    await deleteS3Prefix(userId);
+    try {
+      await deleteS3Prefix(userId);
+    } catch (err) {
+      logSafeError("account delete s3", err);
+    }
 
     const client = await clerkClient();
     await client.users.deleteUser(userId);

@@ -150,10 +150,12 @@ export function useSyncStatus({ onSyncComplete, enabled }: UseSyncStatusOptions)
     try {
       // 1. Push any pending local changes first
       let t = Date.now();
+      devLog('[sync] drain outbox');
       await drainOutbox();
       const outboxMs = Date.now() - t;
       // 2. Pull server state and merge into SQLite
       t = Date.now();
+      devLog('[sync] pull list');
       const result = await pullAndMerge();
       const pullMs = Date.now() - t;
       if (__DEV__) {

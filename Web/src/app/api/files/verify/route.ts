@@ -6,7 +6,7 @@ import {
   HeadObjectCommand,
   S3ServiceException,
 } from "@aws-sdk/client-s3";
-import { auth } from "@clerk/nextjs/server";
+import { getAuthedUserId } from "@/lib/server/getAuthedUserId";
 import { db } from "@/db";
 import { createFile } from "@/lib/server/createFile";
 import type { FileData } from "@/lib/Types/Types";
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
   let userIdForCleanup: string | null = null;
 
   try {
-    const { userId } = await auth();
+    const userId = await getAuthedUserId(request);
     userIdForCleanup = userId;
 
     if (!userId) {

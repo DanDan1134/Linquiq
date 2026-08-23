@@ -34,13 +34,27 @@ export function clerkAuthorizedParties(authorization?: string | null): string[] 
   return parties;
 }
 
+function sessionUserId(authObj: unknown): string | null {
+  if (!authObj || typeof authObj !== "object") return null;
+  if (!("userId" in authObj)) return null;
+  const id = (authObj as { userId?: unknown }).userId;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 /**
  * Resolve Clerk user id from cookies or `Authorization: Bearer` (Expo).
  * Expo tokens use azp like `exp://10.0.0.x:8081`, which default host checks reject.
  */
 export async function getAuthedUserId(req?: NextRequest): Promise<string | null> {
-  const fromAuth = await auth();
-  if (fromAuth.userId) return fromAuth.userId;
+  try {
+    // Session tokens only. `acceptsToken: "any"` includes m2m/api_key objects
+    // that have no userId, which is the TypeScript error on this line.
+    const fromAuth = await auth();
+    const id = sessionUserId(fromAuth);
+    if (id) return id;
+  } catch {
+    // Expo JWTs with exp:// azp can throw here; fall through to authenticateRequest.
+  }
 
   if (!req) return null;
   const header = req.headers.get("authorization");
@@ -52,8 +66,7 @@ export async function getAuthedUserId(req?: NextRequest): Promise<string | null>
       authorizedParties: clerkAuthorizedParties(header),
     });
     if (!state.isAuthenticated) return null;
-    const resolved = state.toAuth();
-    return resolved.userId ?? null;
+    return sessionUserId(state.toAuth());
   } catch {
     return null;
   }

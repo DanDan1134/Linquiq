@@ -192,32 +192,34 @@ export async function putToS3(
       headers,
     })
 
-    const result = await Promise.race([
-      uploadPromise,
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`Upload timeout after ${timeoutMs / 1000}s`)), timeoutMs)
-      ),
-    ])
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const result = await Promise.race([
+        uploadPromise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`Upload timeout after ${timeoutMs / 1000}s`)),
+            timeoutMs
+          )
+        }),
+      ])
 
-    if (![200, 201, 204].includes((result as any).status)) {
-      throw new Error(`S3 PUT failed: ${(result as any).status} ${(result as any).body ?? ''}`)
+      if (![200, 201, 204].includes((result as any).status)) {
+        throw new Error(`S3 PUT failed: ${(result as any).status} ${(result as any).body ?? ''}`)
+      }
+    } finally {
+      if (timer) clearTimeout(timer)
+      uploadPromise.catch(() => undefined)
     }
-    return
   } catch (streamErr) {
+    // No blob fallback: `fetch()` cannot read file:// in React Native, and buffering
+    // the whole file into a Blob is what kills the process on large media.
     logSafeWarn(
-      `[perf·upload] stream PUT failed · ${truncateNameForLog(String(fileUri).split('/').pop() ?? 'file')} · blob fallback`,
+      `[perf·upload] stream PUT failed · ${truncateNameForLog(String(fileUri).split('/').pop() ?? 'file')}`,
       streamErr
     )
+    throw streamErr
   }
-
-  // Fallback path for environments where uploadAsync is unavailable.
-  const resp = await fetch(fileUri)
-  const blob = await resp.blob()
-  await putBlobToS3(presignedUrl, blob, {
-    contentType: opts?.contentType,
-    contentLength: opts?.contentLength ?? blob.size,
-    timeoutMs,
-  })
 }
 
 /** PUT a Blob directly to S3 (for notes/text) */
@@ -303,6 +305,65 @@ export async function uploadFile(
   const serverFileId = resolveSyncedEntryId(verifyJson, key, clientId)
   if (__DEV__) {
     logUploadPipeline('file', verifyName, { convert, presign, s3, verify, bytes })
+  }
+  return { key, url, serverFileId }
+}
+
+/**
+ * Notes: PUT the text string directly. Avoids `new Blob()` and
+ * `FileSystem.uploadAsync`, both of which have killed Expo Go on first sync.
+ */
+export async function uploadNoteText(
+  content: string,
+  suggestedName: string,
+  clientId?: string
+): Promise<{ key: string; url: string; serverFileId: string }> {
+  const text = String(content ?? '')
+  const bytes = new TextEncoder().encode(text)
+  const fromName = mimeFromFileName(suggestedName)
+  const contentType = fromName !== 'application/octet-stream' ? fromName : 'text/plain'
+
+  let t = Date.now()
+  const { url, key, contentType: signedType, contentLength } = await getPresignedUrl({
+    fileName: suggestedName,
+    contentType,
+    contentLength: bytes.byteLength,
+  })
+  const presign = Date.now() - t
+
+  t = Date.now()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 60_000)
+  try {
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': signedType,
+        'Content-Length': String(contentLength),
+      },
+      body: text,
+      signal: controller.signal,
+    })
+    if (![200, 201, 204].includes(res.status)) {
+      const errText = await res.text().catch(() => '')
+      throw new Error(`S3 PUT failed: ${res.status} ${errText.slice(0, 120)}`)
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+  const s3 = Date.now() - t
+
+  t = Date.now()
+  const verifyJson = await verifyUpload(key, suggestedName, clientId)
+  const verify = Date.now() - t
+  const serverFileId = resolveSyncedEntryId(verifyJson, key, clientId)
+  if (__DEV__) {
+    logUploadPipeline('note', suggestedName, {
+      presign,
+      s3,
+      verify,
+      bytes: bytes.byteLength,
+    })
   }
   return { key, url, serverFileId }
 }

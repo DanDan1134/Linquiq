@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuthedUserId } from "@/lib/server/getAuthedUserId";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { entryTable } from "@/db/schema";
@@ -14,7 +14,7 @@ const MAX_IDS = 40;
  * Returns: { urls: Record<string, string> } — missing/unauthorized ids omitted.
  */
 export async function POST(req: NextRequest) {
-  const { userId } = await auth();
+  const userId = await getAuthedUserId(req);
   if (!userId) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
