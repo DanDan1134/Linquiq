@@ -2,15 +2,19 @@ import styles from "./page.module.css";
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { SignedOut, SignInButton } from "@clerk/nextjs";
+import { RedirectIfSignedIn } from "@/app/components/RedirectIfSignedIn";
+
+const AFTER_AUTH_URL = "/dashboard";
 
 export default async function Home() {
     const { userId } = await auth();
     if (userId) {
-        redirect("/dashboard");
+        redirect(AFTER_AUTH_URL);
     }
 
     return (
         <div className={styles.page}>
+            <RedirectIfSignedIn to={AFTER_AUTH_URL} />
             <header className={styles.authHeader}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -20,7 +24,10 @@ export default async function Home() {
                 />
                 <div className={styles.authButtons}>
                     <SignedOut>
-                        <SignInButton>
+                        <SignInButton
+                            forceRedirectUrl={AFTER_AUTH_URL}
+                            fallbackRedirectUrl={AFTER_AUTH_URL}
+                        >
                             <button type="button" className={styles.authBtn}>
                                 Sign in
                             </button>
