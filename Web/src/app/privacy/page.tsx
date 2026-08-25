@@ -26,7 +26,7 @@ export default function PrivacyPolicyPage() {
       <main className={styles.main}>
         <h1 className={styles.title}>Privacy Policy</h1>
         <p className={styles.meta}>
-          <strong>Last updated:</strong> August 19, 2026
+          <strong>Last updated:</strong> August 25, 2026
           <br />
           <strong>Operator:</strong> GLOBIDEA LLC (“we,” “us,” or “our”)
           <br />
@@ -157,7 +157,7 @@ export default function PrivacyPolicyPage() {
           <ul>
             <li>
               <strong>Clerk</strong> — authentication and account sign-in
-              (email/password, Google).
+              (email/password, and Google when enabled).
             </li>
             <li>
               <strong>Vercel</strong> — hosts the website and API.
@@ -198,10 +198,10 @@ export default function PrivacyPolicyPage() {
           </ul>
           <p>
             You can delete your account and associated files in the mobile app
-            under Settings. You can also email{" "}
-            <a href="mailto:privacy@linquiq.com">privacy@linquiq.com</a> from
-            the address on your account. We may need to verify your identity
-            before completing a request.
+            under Settings. For other privacy requests, contact GLOBIDEA LLC
+            using the email address on your tester invitation or the email
+            you used to create your account. We may need to verify your
+            identity before completing a request.
           </p>
         </section>
 
@@ -233,10 +233,9 @@ export default function PrivacyPolicyPage() {
             testing is limited to invited testers who are 18 or older (see{" "}
             <Link href="/terms">Tester Terms</Link>). We do not knowingly
             collect personal information from children under 13. If you believe
-            a child under 13 has provided us personal information, contact us
-            at{" "}
-            <a href="mailto:privacy@linquiq.com">privacy@linquiq.com</a> and we
-            will take steps to delete it.
+            a child under 13 has provided us personal information, contact
+            GLOBIDEA LLC using the email on your tester invitation or the email
+            associated with the account, and we will take steps to delete it.
           </p>
         </section>
 
@@ -255,10 +254,10 @@ export default function PrivacyPolicyPage() {
           <h2>13. Contact Us</h2>
           <p>
             Questions about this Privacy Policy or your data can be directed to{" "}
-            <strong>GLOBIDEA LLC</strong> at{" "}
-            <a href="mailto:privacy@linquiq.com">privacy@linquiq.com</a>
-            {" "}or the product site{" "}
-            <a href="https://www.linquiq.com">https://www.linquiq.com</a>.
+            <strong>GLOBIDEA LLC</strong> using the email address on your
+            tester invitation or the email associated with your account, or
+            through the product site{" "}
+            <a href="https://linquiq.com">https://linquiq.com</a>.
           </p>
         </section>
 
