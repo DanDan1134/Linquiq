@@ -25,7 +25,7 @@ export default function TesterTermsPage() {
       <main className={styles.main}>
         <h1 className={styles.title}>Tester Terms</h1>
         <p className={styles.meta}>
-          <strong>Last updated:</strong> August 19, 2026
+          <strong>Last updated:</strong> August 25, 2026
           <br />
           <strong>Operator:</strong> GLOBIDEA LLC
           <br />
@@ -78,10 +78,9 @@ export default function TesterTermsPage() {
         <section className={styles.section}>
           <h2>6. Contact</h2>
           <p>
-            Questions:{" "}
-            <a href="mailto:privacy@linquiq.com">privacy@linquiq.com</a>
-            {" "}or{" "}
-            <a href="https://www.linquiq.com">https://www.linquiq.com</a>.
+            Questions: contact GLOBIDEA LLC using the email on your tester
+            invitation or the email associated with your account, or visit{" "}
+            <a href="https://linquiq.com">https://linquiq.com</a>.
             Privacy Policy: <Link href="/privacy">/privacy</Link>.
           </p>
         </section>
