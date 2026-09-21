@@ -78,3 +78,6 @@ GitHub Actions workflow: `.github/workflows/ci.yml`
 - Keep secrets in local `.env` files (not committed)
 - DB stores file metadata; file bytes live in S3
 - Mobile and Web must share the same Clerk application and API deployment for auth to work
+- Team handover report: `docs/Linquiq-Team-Handover.md` (PDF: `docs/Linquiq-Team-Handover.pdf`)
+- Mobile production `API_BASE` must be `https://www.linquiq.com` (apex redirects drop auth headers on iOS)
+- Upload helper is `POST /api/files/upload-helper` (not GET)
