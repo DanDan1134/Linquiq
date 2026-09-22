@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react";
-import { DocumentViewer } from "react-documents";
 import { getFileType } from "@/lib/client/getFileType";
 import { sanitizeHtml } from "@/lib/client/sanitizeHtml";
+import { PrivateDocumentPreview } from "@/app/components/Preview/PrivateDocumentPreview";
+import { privateFileSrc } from "@/lib/client/privateFileSrc";
 
 const NoteView = ({ fileUrl }: { fileUrl: string }) => {
     const [fileSrc, setFileSrc] = useState<string | undefined>(undefined);
@@ -26,33 +27,38 @@ const NoteView = ({ fileUrl }: { fileUrl: string }) => {
     );
 };
 
-export const SingleFilePreview = ({ fileUrl, fileType }: { fileUrl?: string; fileType: string }) => {
+export const SingleFilePreview = ({
+    fileType,
+    fileId,
+    fileName,
+}: {
+    fileUrl?: string;
+    fileType: string;
+    fileId?: string;
+    fileName?: string;
+}) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const displayType = getFileType(fileType);
+    const privateSrc = privateFileSrc(fileId);
+    const mediaSrc = privateSrc;
 
-    if (!fileUrl) {
+    if (!mediaSrc && displayType !== "Document") {
         return <div>File not found.</div>;
     }
 
     switch (displayType) {
         case "Document":
             return (
-                <DocumentViewer
-                    queryParams="hl=Nl"
-                    url={fileUrl}
-                    style={{
-                        width: "100%",
-                        aspectRatio: "1/1.1",
-                        borderRadius: "var(--border-rad)",
-                        objectFit: "contain",
-                        objectPosition: "center",
-                    }}
+                <PrivateDocumentPreview
+                    fileId={fileId}
+                    fileType={fileType}
+                    fileName={fileName}
                 />
             );
         case "Image":
             return (
                 <img
-                    src={fileUrl}
+                    src={mediaSrc}
                     alt=""
                     style={{
                         width: "100%",
@@ -65,7 +71,7 @@ export const SingleFilePreview = ({ fileUrl, fileType }: { fileUrl?: string; fil
         case "Recording":
             return (
                 <video
-                    src={fileUrl}
+                    src={mediaSrc}
                     ref={videoRef}
                     autoPlay
                     muted
@@ -79,9 +85,8 @@ export const SingleFilePreview = ({ fileUrl, fileType }: { fileUrl?: string; fil
                 />
             );
         case "Note":
-            return <NoteView fileUrl={fileUrl} />;
+            return privateSrc ? <NoteView fileUrl={privateSrc} /> : <div>File not found.</div>;
         default:
             return <div>Unsupported preview type.</div>;
     }
 };
-

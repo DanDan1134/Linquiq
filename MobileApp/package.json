@@ -20,7 +20,6 @@
     "@react-native-cookies/cookies": "^6.2.1",
     "axios": "^1.13.1",
     "expo": "~54.0.22",
-    "expo-apple-authentication": "~8.0.8",
     "expo-audio": "~1.0.14",
     "expo-auth-session": "~7.0.10",
     "expo-av": "~16.0.7",

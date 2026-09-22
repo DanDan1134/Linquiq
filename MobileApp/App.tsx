@@ -4,6 +4,7 @@ import {
   Alert,
   View,
   Text,
+  TouchableOpacity,
   InteractionManager,
   Platform,
 } from "react-native";
@@ -22,12 +23,14 @@ WebBrowser.maybeCompleteAuthSession();
 import { LandingScreen } from "./components/LandingScreen";
 import { LoginScreen } from "./components/LoginScreen";
 import { SignUpScreen } from "./components/SignUpScreen";
+import { WaitlistScreen } from "./components/WaitlistScreen";
 import { Header } from "./components/Header";
 import { FileList } from "./components/FileList"; // <- ensure this is the updated version (refreshing/onRefresh + safe selectedFiles)
 import { BottomNavigation } from "./components/BottomNavigation";
 import { NoteModal } from "./components/NoteModal";
 import { FileDetailModal } from "./components/FileDetailModal";
 import { BundleModal } from "./components/BundleModal";
+import { NameLinqModal } from "./components/NameLinqModal";
 import { useBundlePreview } from './hooks/useBundlePreview';
 import { CameraModal } from "./components/CameraModal";
 import { SettingsModal } from "./components/SettingsModal";
@@ -37,7 +40,7 @@ import {
   SubmissionTimeFilter,
 } from "./components/SearchFilterModal";
 import { useVoiceRecord } from "./components/VoiceRecord";
-import { setTokenGetter } from './api/client'
+import { setTokenGetter, clearTokenCache } from './api/client'
 import { clearAllInflight } from './utils/inflight'
 import { clearUrlCache } from './utils/urlCache'
 import {
@@ -54,6 +57,7 @@ import {
   updateFileContent,
   upsertBundle,
   updateBundleName,
+  updateFileName,
   updateBundleChildIds,
   purgeFile,
   purgeBundle,
@@ -63,7 +67,7 @@ import {
   type LocalBundle,
 } from './db/fileRepo'
 import { useSyncStatus } from './hooks/useSyncStatus'
-import { saveLocal, optimisticRow } from './sync/saveLocal'
+import { saveLocal, optimisticRow, clearOfflineDir } from './sync/saveLocal'
 import { enqueue, cancelJobsForId, getOutboxReferencedIds } from './db/outbox'
 import NetInfo from '@react-native-community/netinfo'
 
@@ -74,18 +78,21 @@ import {
   stripHtml,
   deriveNoteUploadFileName,
   truncateNameForLog,
-  deriveLinqTitleFromFiles,
+  DEFAULT_LINQ_NAME,
+  resolveLinqDisplayName,
+  newLocalFileId,
+  isLegacyOptId,
+  isLikelyNoteFile,
+  mergePreservedChildFileRows,
 } from "./utils/helpers";
 import { logPerf, logLinqOpenStep, idSuffixForLog, track } from "./utils/perfLog";
+import { devLog, logSafeError, logSafeWarn } from "./utils/safeLog";
 import {
   prewarmCaptureModules,
   ensureMediaLibraryPermission,
   resetPermissionCache,
 } from "./utils/permissions";
-import { fetchMe } from "./api/auth";
 import "./global.css";
-
-// API modules
 import { API_BASE } from "./api/client";
 import * as filesApi from "./api/files";
 import type { SearchHitRow } from "./api/files";
@@ -132,11 +139,6 @@ function childNameSummary(files: any[] | undefined, max = 10): string {
 function linqContentSummary(fileCount: number, loadingWhenZero = false): string {
   if (fileCount > 0) return `linq containing ${fileCount} file(s)`;
   return loadingWhenZero ? "Loading nested linq contents..." : "linq containing 0 file(s)";
-}
-
-function isGenericLinqName(name: unknown): boolean {
-  const n = String(name ?? "").trim().toLowerCase();
-  return !n || n === "linq" || n === "bundle" || n === "link";
 }
 
 /** Backend row types that open the linq sheet (includes literal `linq`). */
@@ -314,7 +316,7 @@ async function separateBundlesAndFiles(allItems: any[]): Promise<{
           });
         }
       } catch (e) {
-        console.warn(
+        logSafeWarn(
           `[perf·linqList] prefetch children failed · id${idSuffixForLog(bundle.id)}`,
           e
         );
@@ -340,18 +342,7 @@ async function separateBundlesAndFiles(allItems: any[]): Promise<{
       bundle.files?.length
         ? `linq containing ${bundle.files.length} file(s)`
         : bundle.content ?? "Empty linq";
-    if (isGenericLinqName(bundle.name)) {
-      const derivedTitle = deriveLinqTitleFromFiles(bundle.files ?? []);
-      bundle.name = derivedTitle;
-      const bundleId = String(bundle?.id ?? "").trim();
-      if (bundleId && !bundleId.startsWith("opt-") && !isGenericLinqName(derivedTitle)) {
-        try {
-          await updateBundleName(bundleId, derivedTitle);
-        } catch (e) {
-          console.warn(`[linq] failed to persist derived title for ${bundleId}:`, e);
-        }
-      }
-    }
+    bundle.name = resolveLinqDisplayName(bundle.name);
   }, 6);
 
   return { bundles, files };
@@ -360,17 +351,22 @@ async function separateBundlesAndFiles(allItems: any[]): Promise<{
 /**
  * Merge server `raw` with SQLite-merged rows so dirty / local-only ids stay in the enrichment input.
  *
- * @param pendingOptIds  opt- ids currently sitting in the outbox (still uploading).
- *   When the server is available (raw.length > 0) and an opt- item is NOT in this set,
- *   we skip it — the upload finished and markFileSynced will rename the row shortly,
- *   so showing the opt- item alongside the server item would produce a duplicate.
+ * @param pendingOptIds  local ids currently sitting in the outbox (still uploading).
+ *   When the server is available and a dirty item is NOT in this set,
+ *   we skip it — the upload finished and markFileSynced will clear dirty shortly,
+ *   so showing the pending item alongside the server item would produce a duplicate.
+ * @param isServerSync  true after a real pull. Empty `raw` then means "deleted on server",
+ *   not "offline / unknown" — do not resurrect clean local rows.
  */
 function mergeRawWithMergedLists(
   raw: any[],
   mergedFiles: LocalFile[],
   mergedBundles: LocalBundle[],
-  pendingOptIds?: Set<string>
+  pendingOptIds?: Set<string>,
+  isServerSync = false
 ): any[] {
+  const serverReachable = isServerSync || raw.length > 0;
+
   const localFileToRaw = (f: LocalFile): any => {
     const item: any = {
       id: f.id,
@@ -405,22 +401,29 @@ function mergeRawWithMergedLists(
     const id = String(local?.id ?? "").trim();
     if (!id) return;
     const dirty = local.dirty === 1;
+    const pending =
+      pendingOptIds != null && pendingOptIds.has(id);
 
-    // When the server is reachable and this is a dirty opt- item, only include it
+    // When the server is reachable and this is a dirty pending upload, only include it
     // if it still has a pending outbox job.  If the upload already completed,
-    // markFileSynced will rename the row imminently — showing it now would create
-    // a duplicate alongside the server item that already has the real id.
-    if (dirty && id.startsWith("opt-") && raw.length > 0 && pendingOptIds) {
+    // markFileSynced will clear dirty (and keep the same UUID id) — showing it now
+    // would create a duplicate alongside the server item.
+    if (dirty && serverReachable && pendingOptIds) {
       if (!pendingOptIds.has(id)) return;
     }
 
     if (dirty) {
+      // Server deleted this id and there is no pending local job — drop it.
+      if (serverReachable && !isLegacyOptId(id) && !byId.has(id) && !pending) {
+        return;
+      }
       byId.set(id, isBundle ? localBundleToRaw(local as LocalBundle) : localFileToRaw(local));
       return;
     }
     // During online sync, don't re-add clean server ids that are absent from raw.
     // Those were deleted on web (or another device) and should disappear locally.
-    if (raw.length > 0 && !id.startsWith("opt-") && !byId.has(id)) {
+    // Legacy opt- / never-synced placeholders are still kept when offline (raw empty).
+    if (serverReachable && !isLegacyOptId(id) && !byId.has(id)) {
       return;
     }
     if (!byId.has(id)) {
@@ -704,12 +707,10 @@ async function runPhaseB(
             files: await runPhaseB(working.files, { skipRemote }),
           };
         }
-        if (isGenericLinqName(working.name)) {
-          working = {
-            ...working,
-            name: deriveLinqTitleFromFiles(working.files ?? []),
-          };
-        }
+        working = {
+          ...working,
+          name: resolveLinqDisplayName(working.name),
+        };
         return working;
       }
 
@@ -774,8 +775,9 @@ function bundleChildRowsAreDisplayReady(files: any[] | undefined): boolean {
     }
     const idStr = String(file?.id ?? "").trim();
     if (!idStr) continue;
-    // Local-first rows keep opt- ids until upload; url/local_uri may already be a file:// path.
-    if (idStr.startsWith("opt-")) {
+    // Local-first rows may use UUID (preferred) or legacy opt- ids until upload;
+    // url/local_uri may already be a file:// path.
+    if (idStr.startsWith("opt-") || file?.dirty === 1) {
       if (bundleLeafNeedsPlayableOrPreviewUrl(file)) {
         if (!bundleLeafHasReadableUri(file)) return false;
       }
@@ -980,16 +982,23 @@ function enrichBundleFileTypeColors(files: any[] | undefined): any[] {
 }
 
 function WireClerkToken() {
-  const { getToken } = useAuth()
+  const { getToken, isSignedIn } = useAuth()
   React.useEffect(() => {
-    setTokenGetter(getToken)
-  }, [getToken])
+    setTokenGetter(async (opts?: { skipCache?: boolean }) => {
+      if (!isSignedIn) return null;
+      try {
+        return await getToken({ skipCache: true, ...opts });
+      } catch {
+        return null;
+      }
+    })
+  }, [getToken, isSignedIn])
   return null
 }
 
 function AppContent() {
   // Screen routing
-  const [screen, setScreen] = useState<"landing" | "login" | "signup" | "home">(
+  const [screen, setScreen] = useState<"landing" | "login" | "signup" | "waitlist" | "home">(
     "landing"
   );
   
@@ -1003,7 +1012,7 @@ function AppContent() {
 
   // ── Initialize SQLite DB on first mount ────────────────────────────────────
   useEffect(() => {
-    initDb().catch((e) => console.error('[db] initDb failed:', e));
+    initDb().catch((e) => logSafeError('[db] initDb failed', e));
   }, []);
 
   // Warm camera/mic/library native modules so the first tap opens instantly.
@@ -1019,6 +1028,16 @@ function AppContent() {
 
   // File/bundle state
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [addingToLinq, setAddingToLinq] = useState<{
+    id: string;
+    name: string;
+    childIds: string[];
+  } | null>(null);
+  const [linqNameModal, setLinqNameModal] = useState<{
+    visible: boolean;
+    preset: string;
+    selectedIds: string[];
+  }>({ visible: false, preset: "", selectedIds: [] });
   const [isNoteModalVisible, setIsNoteModalVisible] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [selectedFile, setSelectedFile] = useState<any>(null);
@@ -1079,56 +1098,156 @@ function AppContent() {
     [bundles]
   );
 
-  const handleCreateLinq = React.useCallback(async () => {
-    const selectedIds = Array.from(selectedFiles ?? [])
-    if (selectedIds.length < 2) {
-      Alert.alert('Select at least 2 items to create a linq')
-      return
+  /** Files already in the linq being edited — not selectable while add mode is on. */
+  const lockedLinqFileIds = React.useMemo(() => {
+    if (!addingToLinq) return undefined;
+    const ids = new Set<string>();
+    ids.add(String(addingToLinq.id));
+    for (const id of addingToLinq.childIds ?? []) {
+      const s = String(id).trim();
+      if (s) ids.add(s);
     }
+    return ids;
+  }, [addingToLinq]);
 
-    const linqFiles = selectedIds
-      .map((id) => fileById.get(id) ?? bundles.find((b: any) => String(b.id) === id))
-      .filter(Boolean);
-    const linqTitle = deriveLinqTitleFromFiles(linqFiles);
+  const handleCreateLinq = React.useCallback(() => {
+    if (addingToLinq) {
+      void confirmAddToLinq();
+      return;
+    }
+    const selectedIds = Array.from(selectedFiles ?? []);
+    if (selectedIds.length === 0) return;
+    // Leave the name input blank — unnamed linqs default to "linq".
+    setLinqNameModal({
+      visible: true,
+      preset: "",
+      selectedIds,
+    });
+  }, [addingToLinq, selectedFiles]);
 
-    try {
-      // Always local-first: works offline; outbox resolves child opt- ids after uploads sync
-      const localBundleId = `opt-linq-${Date.now()}`
-      await upsertBundle({
-        id: localBundleId,
-        name: linqTitle,
-        type: 'Link',
-        created_at: new Date().toISOString(),
-        creator: email ?? null,
-        child_ids: JSON.stringify(selectedIds),
-        dirty: 1,
-        deleted: 0,
-      })
-      await enqueue({ op: 'create_bundle', localBundleId, childLocalIds: selectedIds })
-
-      const syntheticBundle = {
-        id: localBundleId,
-        name: linqTitle,
-        type: 'Link',
-        typeColor: colorFromCategory('Link'),
-        bundledFileIds: selectedIds,
-        bundledUrls: linqFiles.map((f: any) => f?.url).filter(Boolean),
-        files: linqFiles,
-        content: `linq containing ${linqFiles.length} file(s)`,
-        createdAt: new Date().toISOString(),
-        creator: email ?? '',
-        dirty: 1,
+  const confirmCreateLinq = React.useCallback(
+    async (folderName: string) => {
+      const selectedIds = linqNameModal.selectedIds;
+      const typed = String(folderName ?? "").trim().slice(0, 80);
+      const name = typed || DEFAULT_LINQ_NAME;
+      const linqFiles = selectedIds
+        .map((id) => fileById.get(id) ?? bundles.find((b: any) => String(b.id) === id))
+        .filter(Boolean);
+      setLinqNameModal({ visible: false, preset: "", selectedIds: [] });
+      try {
+        const localBundleId = newLocalFileId();
+        await upsertBundle({
+          id: localBundleId,
+          name,
+          type: "Link",
+          created_at: new Date().toISOString(),
+          creator: email ?? null,
+          child_ids: JSON.stringify(selectedIds),
+          dirty: 1,
+          deleted: 0,
+        });
+        await enqueue({
+          op: "create_bundle",
+          localBundleId,
+          childLocalIds: selectedIds,
+        });
+        const syntheticBundle = {
+          id: localBundleId,
+          name,
+          type: "Link",
+          typeColor: colorFromCategory("Link"),
+          bundledFileIds: selectedIds,
+          bundledUrls: linqFiles.map((f: any) => f?.url).filter(Boolean),
+          files: linqFiles,
+          content: `linq containing ${linqFiles.length} file(s)`,
+          createdAt: new Date().toISOString(),
+          creator: email ?? "",
+          dirty: 1,
+        };
+        setBundles((prev) => [syntheticBundle, ...prev]);
+        setSelectedFiles(new Set());
+        bumpFileListScrollTop();
+        markLocalChangePending();
+      } catch (err: any) {
+        logSafeError("Create Linq failed", err);
+        Alert.alert("Error", err?.message ?? "Failed to create linq");
       }
-      setBundles((prev) => [syntheticBundle, ...prev])
-      setSelectedFiles(new Set())
-      bumpFileListScrollTop()
-      // Do not force immediate sync after creating a linq; let 1-min timer/manual sync handle it.
-      markLocalChangePending()
-    } catch (err: any) {
-      console.error('Create Linq failed:', err)
-      Alert.alert('Error', err?.message ?? 'Failed to create linq')
+    },
+    [linqNameModal.selectedIds, fileById, email, bundles, bumpFileListScrollTop]
+  );
+
+  const confirmAddToLinq = React.useCallback(async () => {
+    if (!addingToLinq) return;
+    const targetId = String(addingToLinq.id);
+    const existing = new Set(
+      (addingToLinq.childIds ?? []).map((id) => String(id))
+    );
+    const picked = Array.from(selectedFiles ?? [])
+      .map((id) => String(id))
+      .filter((id) => id && id !== targetId && !existing.has(id));
+    if (picked.length === 0) {
+      Alert.alert("Nothing new", "Select files that are not already in this linq.");
+      return;
     }
-  }, [selectedFiles, fileById, email, bundles, bumpFileListScrollTop])
+    const merged = [...existing, ...picked];
+    try {
+      await updateBundleChildIds(targetId, merged);
+      if (!targetId.startsWith("opt-")) {
+        await enqueue({
+          op: "add_to_bundle",
+          bundleId: targetId,
+          childLocalIds: picked,
+        });
+        bundlesApi.invalidateBundleContentsCache(targetId);
+      }
+      const addedFiles = picked
+        .map(
+          (id) =>
+            fileById.get(id) ?? bundles.find((b: any) => String(b.id) === id)
+        )
+        .filter(Boolean);
+      const baseBundle = bundles.find((b: any) => String(b.id) === targetId);
+      const prevFiles = Array.isArray(baseBundle?.files) ? baseBundle.files : [];
+      const seen = new Set(prevFiles.map((f: any) => String(f.id)));
+      const nextFiles = [
+        ...prevFiles,
+        ...addedFiles.filter((f: any) => !seen.has(String(f.id))),
+      ];
+      const updatedBundle = {
+        ...(baseBundle ?? {
+          id: targetId,
+          name: addingToLinq.name,
+          type: "Link",
+          typeColor: colorFromCategory("Link"),
+          creator: email ?? "",
+          createdAt: new Date().toISOString(),
+        }),
+        bundledFileIds: merged,
+        files: nextFiles,
+        content: `linq containing ${nextFiles.length} file(s)`,
+      };
+      setBundles((prev) =>
+        prev.map((b: any) =>
+          String(b.id) === targetId ? updatedBundle : b
+        )
+      );
+      setSelectedFiles(new Set());
+      markLocalChangePending();
+      setAddingToLinq(null);
+      // Return to the linq the user was adding into.
+      requestAnimationFrame(() => {
+        void openBundleDetail(updatedBundle);
+      });
+    } catch (err: any) {
+      Alert.alert("Error", err?.message ?? "Could not add files to linq");
+    }
+  }, [
+    addingToLinq,
+    selectedFiles,
+    fileById,
+    bundles,
+    email,
+  ]);
 
   // Derived lists — bundles first in the merge map so a Linq wins over a stray duplicate file row.
   const sortedFiles = useMemo(() => {
@@ -1188,7 +1307,7 @@ function AppContent() {
         setSearchApiStatus("ok");
       } catch (e) {
         if (!cancelled && rid === searchRequestId.current) {
-          console.warn("GET /api/files/search failed, falling back to on-device search:", e);
+          logSafeWarn("GET /api/files/search failed, falling back to on-device search", e);
           setSearchApiHits([]);
           setSearchApiStatus("error");
         }
@@ -1525,20 +1644,24 @@ const filteredFiles = useMemo(() => {
   const {
     status: syncStatus,
     triggerSync,
+    downloadProgress,
     hasPendingLocalChanges,
     markLocalChangePending,
   } = useSyncStatus({
     enabled: isLoggedIn && screen === 'home',
-    onSyncComplete: ({ files: freshFiles, bundles: freshBundles, raw }) => {
-      const isOnlineSync = raw.length > 0;
-      if (isOnlineSync) hasServerDataRef.current = true;
+    onSyncComplete: ({ files: freshFiles, bundles: freshBundles, raw, source }) => {
+      // Prefer explicit source. Fall back for any older callers that omit it.
+      const syncSource = source ?? (raw.length > 0 ? 'server' : 'offline');
+      const isServerSync = syncSource === 'server';
+      const isCacheSync = syncSource === 'cache';
+      if (isServerSync) hasServerDataRef.current = true;
 
       InteractionManager.runAfterInteractions(async () => {
         try {
           // After we've shown server-backed data, ignore an *empty* offline SQLite
-          // snapshot (avoids wiping the list mid-session). Still merge when SQLite
-          // has rows so cold start / refresh offline can repopulate the UI.
-          if (!isOnlineSync && hasServerDataRef.current) {
+          // snapshot (avoids wiping the list mid-session). Cache + server must still
+          // apply empty lists so web deletes clear the UI.
+          if (syncSource === 'offline' && hasServerDataRef.current) {
             const n = freshFiles.length + freshBundles.length;
             if (n === 0) return;
           }
@@ -1550,13 +1673,19 @@ const filteredFiles = useMemo(() => {
             date: f.date ?? f.createdAt ?? '',
           });
 
-          if (!isOnlineSync) {
-            // ── Offline fast path ───────────────────────────────────────────
+          if (!isServerSync) {
+            // ── Offline / post-cache fast path ───────────────────────────────
             // Skip separateBundlesAndFiles: it calls NetInfo + getContents and
             // can hang/throw/produce empty bundles offline.
             // Decorate SQLite rows directly and resolve Linq children from the
             // in-memory fileMap — zero network needed.
-            if (freshFiles.length === 0 && freshBundles.length === 0) return;
+            if (
+              syncSource === 'offline' &&
+              freshFiles.length === 0 &&
+              freshBundles.length === 0
+            ) {
+              return;
+            }
             const isLinqT = (t: string) => {
               const l = String(t ?? '').toLowerCase();
               return l === 'link' || l === 'bundle' || l === 'linq';
@@ -1574,13 +1703,20 @@ const filteredFiles = useMemo(() => {
               dec.content = dec.files?.length
                 ? linqContentSummary(dec.files.length)
                 : dec.content ?? 'Empty linq';
-              if (isGenericLinqName(dec.name)) {
-                dec.name = deriveLinqTitleFromFiles(dec.files ?? []);
-              }
+              dec.name = resolveLinqDisplayName(dec.name);
               return dec;
             });
-            setBundles(decoratedBundles);
-            setUserFiles(decoratedFiles);
+            // Cache refresh after a pull that deleted everything: clear UI.
+            if (isCacheSync || decoratedFiles.length + decoratedBundles.length > 0) {
+              setBundles(decoratedBundles);
+              setUserFiles(decoratedFiles);
+              if (isCacheSync) {
+                lastFingerprintRef.current = [...decoratedFiles, ...decoratedBundles]
+                  .map((i: any) => `${i.id ?? ''}:${i.createdAt ?? ''}`)
+                  .sort()
+                  .join('|');
+              }
+            }
             return;
           }
 
@@ -1591,7 +1727,13 @@ const filteredFiles = useMemo(() => {
             pendingOptIds = new Set([...fileIds, ...bundleIds]);
           } catch { /* non-fatal */ }
 
-          const mergedInput = mergeRawWithMergedLists(raw, freshFiles, freshBundles, pendingOptIds);
+          const mergedInput = mergeRawWithMergedLists(
+            raw,
+            freshFiles,
+            freshBundles,
+            pendingOptIds,
+            true
+          );
           const fp = mergedInput
             .map((i: any) => `${i.id ?? ''}:${i.createdAt ?? ''}`)
             .sort()
@@ -1603,7 +1745,37 @@ const filteredFiles = useMemo(() => {
           setBundles(enrichedBundles.map(decorateRow));
           setUserFiles(enrichedFiles.map(decorateRow));
         } catch (e) {
-          console.warn('[sync] onSyncComplete enrichment failed:', e);
+          logSafeWarn('[sync] onSyncComplete enrichment failed', e);
+          // Still apply the SQLite snapshot so web deletes are not stuck in UI
+          // when enrichment fails after a successful purge.
+          if (isServerSync || isCacheSync) {
+            try {
+              const isLinqT = (t: string) => {
+                const l = String(t ?? '').toLowerCase();
+                return l === 'link' || l === 'bundle' || l === 'linq';
+              };
+              setUserFiles(
+                freshFiles
+                  .filter((f: any) => !isLinqT(f.type))
+                  .map((f: any) => ({
+                    ...f,
+                    typeColor:
+                      f.typeColor ?? colorFromCategory(categoryFromExt(f.type ?? '')),
+                    date: f.date ?? f.createdAt ?? '',
+                  }))
+              );
+              setBundles(
+                freshBundles.map((b: any) => ({
+                  ...b,
+                  typeColor:
+                    b.typeColor ?? colorFromCategory(categoryFromExt(b.type ?? '')),
+                  date: b.date ?? b.createdAt ?? '',
+                }))
+              );
+            } catch {
+              /* non-fatal */
+            }
+          }
         }
       });
     },
@@ -1669,12 +1841,13 @@ const filteredFiles = useMemo(() => {
         setSelectedBundle((cur: any) => {
         if (!cur || String(cur.serverId ?? cur.id ?? "") !== bundleId) return cur;
           if (bundleChildRowsAreDisplayReady(cur.files)) return cur;
+          const mergedFiles = mergePreservedChildFileRows(hydrated, cur.files);
           return {
             ...cur,
-            files: hydrated,
+            files: mergedFiles,
             bundledFileIds: rowFromList?.bundledFileIds ?? cur.bundledFileIds,
             bundledUrls: rowFromList?.bundledUrls ?? cur.bundledUrls,
-            content: `linq containing ${hydrated.length} file(s)`,
+            content: `linq containing ${mergedFiles.length} file(s)`,
           };
         });
         if (bundleChildRowsAreDisplayReady(hydrated)) {
@@ -1724,7 +1897,7 @@ const filteredFiles = useMemo(() => {
         if (!uri) throw new Error("No audio file URI from recorder.");
 
         const fileName = getDefaultFileName("audio", ".mp3");
-        const localId = `opt-${Date.now()}`;
+        const localId = newLocalFileId();
 
         // Save locally first (copies to persistent storage + enqueues upload)
         const { localUri } = await saveLocal({
@@ -1753,7 +1926,7 @@ const filteredFiles = useMemo(() => {
 
         markLocalChangePending();
       } catch (e: any) {
-        console.error("Audio save error:", e);
+        logSafeError("Audio save error", e);
         Alert.alert("Error", e?.message ?? "Could not save audio.");
       }
     },
@@ -1794,17 +1967,19 @@ const filteredFiles = useMemo(() => {
         localFiles = (await getAllFiles()) as any[];
         localBundles = (await getAllBundles()) as any[];
       } catch (dbErr) {
-        console.warn('[files] SQLite read failed:', dbErr);
+        logSafeWarn('[files] SQLite read failed', dbErr);
       }
       const msSqliteRead = Date.now() - t;
 
       // ── Try server fetch; silently fall back to empty when offline ────────────
       let raw: any[] = [];
+      let serverListOk = false;
       t = Date.now();
       try {
         raw = await fetchAllFiles();
+        serverListOk = true;
       } catch {
-        console.log(
+        devLog(
           `[files] API list unreachable · SQLite-only · local read was ${msSqliteRead}ms`
         );
       }
@@ -1814,7 +1989,7 @@ const filteredFiles = useMemo(() => {
       // Used by mergeRawWithMergedLists to avoid showing opt- items that have
       // already been uploaded (their server id will arrive with markFileSynced).
       let pendingOptIds: Set<string> | undefined;
-      if (raw.length > 0) {
+      if (serverListOk) {
         try {
           const { fileIds, bundleIds } = await getOutboxReferencedIds();
           pendingOptIds = new Set([...fileIds, ...bundleIds]);
@@ -1822,12 +1997,18 @@ const filteredFiles = useMemo(() => {
       }
 
       // Merge server list with local SQLite so opt- items survive the refresh.
-      const merged = mergeRawWithMergedLists(raw, localFiles, localBundles, pendingOptIds);
+      const merged = mergeRawWithMergedLists(
+        raw,
+        localFiles,
+        localBundles,
+        pendingOptIds,
+        serverListOk
+      );
 
       // ── Client fingerprint: skip enrichment when list unchanged (silent syncs) ──
       // When there is no server payload (offline / fetch failed), never skip — merged
       // list comes only from SQLite and must still run through enrichment.
-      if (opts?.silent && raw.length > 0) {
+      if (opts?.silent && serverListOk) {
         const fp = merged
           .map((i: any) => `${i.id ?? ""}:${i.createdAt ?? ""}`)
           .sort()
@@ -1898,31 +2079,39 @@ const filteredFiles = useMemo(() => {
             schedulePreHydration(freshBundles, freshFiles);
           });
         } catch (e) {
-          console.warn("[files] background linq prefetch failed:", e);
+          logSafeWarn("[files] background linq prefetch failed", e);
         }
       });
     } catch (e) {
-      console.warn("[files] load failed:", e);
+      logSafeWarn("[files] load failed", e);
     }
   }
 
   const clerkEmail = user?.primaryEmailAddress?.emailAddress;
   const clerkUserId = user?.id;
 
-  // Boot-time restore: auto sign-in if token exists
+  // Restore home only for a real Clerk session with an email.
+  // Do not send waitlist/login back to landing when signed out.
+  // Do not send a deleted/empty user to home (blank name + settings icon).
   useEffect(() => {
-    // Wait until Clerk finishes loading the user
     if (!userLoaded) return;
-    if (isSignedIn) {
-      setIsLoggedIn(true);
-      setEmail(clerkEmail ?? undefined);
-      setScreen("home");
-    } else {
-      setIsLoggedIn(false);
-      setScreen("landing");
-    }
     setBooting(false);
-  }, [isSignedIn, userLoaded, clerkEmail, clerkUserId]);
+
+    if (isSignedIn) {
+      const emailAddr = String(clerkEmail ?? "").trim();
+      if (!emailAddr) {
+        void signOut().catch(() => undefined);
+        return;
+      }
+      setIsLoggedIn(true);
+      setEmail(emailAddr);
+      setScreen("home");
+      return;
+    }
+
+    setIsLoggedIn(false);
+    setScreen((current) => (current === "home" ? "landing" : current));
+  }, [isSignedIn, userLoaded, clerkEmail, clerkUserId, signOut]);
 
 
   // ---- Initial list load — local SQLite only. Network sync is manual. ----
@@ -1953,15 +2142,13 @@ const filteredFiles = useMemo(() => {
           dec.content = dec.files?.length
             ? linqContentSummary(dec.files.length)
             : dec.content ?? 'Empty linq';
-          if (isGenericLinqName(dec.name)) {
-            dec.name = deriveLinqTitleFromFiles(dec.files ?? []);
-          }
+          dec.name = resolveLinqDisplayName(dec.name);
           return dec;
         });
         setUserFiles(decoratedFiles);
         setBundles(decoratedBundles);
       } catch (e) {
-        console.warn('[boot] SQLite read failed:', e);
+        logSafeWarn('[boot] SQLite read failed', e);
       }
     })();
   }, [isLoggedIn, screen, initialListLoaded]);
@@ -1989,11 +2176,12 @@ const filteredFiles = useMemo(() => {
 
     let cancelled = false;
     (async () => {
-      const isOptimistic = (id: any) => String(id ?? "").startsWith("opt-");
+      const isOptimistic = (f: any) =>
+        isLegacyOptId(f?.id) || f?.dirty === 1;
       const topLevelNotes: any[] = userFiles.filter(
         (f: any) =>
           f?.id != null &&
-          !isOptimistic(f.id) &&
+          !isOptimistic(f) &&
           isNoteFile(f) &&
           !(f.content && String(f.content).trim() !== "") &&
           !fetchedNoteContentIds.current.has(String(f.id))
@@ -2002,7 +2190,7 @@ const filteredFiles = useMemo(() => {
       for (const bundle of bundles) {
         if (!bundle.files?.length) continue;
         for (const file of bundle.files) {
-          if (!file?.id || isOptimistic(file.id) || !isNoteFile(file)) continue;
+          if (!file?.id || isOptimistic(file) || !isNoteFile(file)) continue;
           if (file.content && String(file.content).trim() !== "") continue;
           if (fetchedNoteContentIds.current.has(String(file.id))) continue;
           nestedNotes.push({ bundleId: bundle.id, file });
@@ -2017,7 +2205,7 @@ const filteredFiles = useMemo(() => {
       const fetchOne = async (file: any): Promise<string | null> => {
         if (cancelled) return null;
         // Skip optimistic placeholders — they have no real server record yet
-        if (isOptimistic(file.id)) return null;
+        if (isOptimistic(file)) return null;
         try {
           let url = file.url;
           if (file.id != null) {
@@ -2090,10 +2278,12 @@ const filteredFiles = useMemo(() => {
 
   // ===== Handlers =====
   const toggleFileSelection = (fileId: string) => {
+    const id = String(fileId);
+    if (lockedLinqFileIds?.has(id)) return;
     setSelectedFiles((prev) => {
       const next = new Set(prev);
-      if (next.has(fileId)) next.delete(fileId);
-      else next.add(fileId);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -2125,14 +2315,18 @@ const filteredFiles = useMemo(() => {
             };
           }
         } catch (e) {
-          console.warn(`getFileById failed for ${file?.id}`, e);
+          logSafeWarn(`getFileById failed for id${idSuffixForLog(file?.id)}`, e);
         }
       }
       t.step("read from local db");
 
       const netState = await NetInfo.fetch();
       const id = String(merged?.id ?? "").trim();
-      const canSyncThisFile = id !== "" && !id.startsWith("opt-") && !!netState.isConnected;
+      const canSyncThisFile =
+        id !== "" &&
+        !isLegacyOptId(id) &&
+        Number(merged?.dirty) !== 1 &&
+        !!netState.isConnected;
 
       const mergedExt = String(merged?.contentType ?? "").toLowerCase();
       const mergedName = String(merged?.name ?? "").toLowerCase();
@@ -2163,7 +2357,7 @@ const filteredFiles = useMemo(() => {
             };
           }
         } catch (e) {
-          console.warn(`ensureFileDownloaded failed for ${id}`, e);
+          logSafeWarn(`ensureFileDownloaded failed for id${idSuffixForLog(id)}`, e);
         }
         t.step("downloaded content");
       }
@@ -2172,8 +2366,31 @@ const filteredFiles = useMemo(() => {
         merged?.local_uri && String(merged.local_uri).trim() !== ""
           ? String(merged.local_uri)
           : undefined;
-      // Open from local file cache when available; avoid direct S3 opens.
-      url = localUri ?? (isInlineText ? merged?.url ?? url : undefined);
+
+      // Prefer on-device cache. For images/PDFs/etc., fall back to a fresh
+      // presigned S3 URL — never the HTML /preview/{id} page (RN Image/WebView
+      // cannot render that Clerk-auth page as media).
+      url = localUri ?? undefined;
+      if (!url) {
+        const existing = String(merged?.url ?? url ?? "").trim();
+        const looksLikeSitePreview =
+          /\/preview\/[^/?#]+/i.test(existing) ||
+          existing.includes(`${API_BASE}/preview/`);
+        if (existing && !looksLikeSitePreview) {
+          url = existing;
+        } else if (isInlineText) {
+          url = existing || undefined;
+        } else if (canSyncThisFile) {
+          try {
+            const remote = await fetchUrl(id);
+            if (remote && String(remote).trim() !== "") {
+              url = String(remote).trim();
+            }
+          } catch (e) {
+            logSafeWarn(`fetchUrl failed for id${idSuffixForLog(id)}`, e);
+          }
+        }
+      }
       extFromLocal = (merged?.contentType ?? extFromLocal ?? "").toLowerCase();
       nameFromLocal = merged?.name;
 
@@ -2240,7 +2457,7 @@ const filteredFiles = useMemo(() => {
       if (isAudio) {
         const extLower = extClean;
         if (extLower !== "mp3") {
-          console.log(`Audio file is ${extLower}, keeping original format`);
+          devLog(`Audio file is ${extLower}, keeping original format`);
         }
         fileName = getDefaultFileName("audio", ext, true);
       } else {
@@ -2251,7 +2468,7 @@ const filteredFiles = useMemo(() => {
       }
 
       const cat = categoryFromExt(extClean);
-      const localId = `opt-${Date.now()}`;
+      const localId = newLocalFileId();
 
       // Save locally first — works offline, enqueues upload for later
       const { localUri } = await saveLocal({
@@ -2368,7 +2585,7 @@ const filteredFiles = useMemo(() => {
           }
 
           const cat = categoryFromExt(safeExt);
-          const localId = `opt-${Date.now()}-${i}`;
+          const localId = newLocalFileId();
 
           // Save locally first — works offline
           const { localUri } = await saveLocal({
@@ -2391,7 +2608,7 @@ const filteredFiles = useMemo(() => {
           }));
         } catch (e) {
           failureCount += 1;
-          console.warn(`Image save failed for asset ${i}:`, e);
+          logSafeWarn(`Image save failed for asset ${i}`, e);
         }
       }
 
@@ -2432,7 +2649,7 @@ const filteredFiles = useMemo(() => {
     if (!trimmed) return;
 
     const fileName = deriveNoteUploadFileName(body);
-    const localId = `opt-${Date.now()}`;
+    const localId = newLocalFileId();
     const displayName = fileName.replace(/\.txt$/, "");
     const t = track("SAVE NOTE");
 
@@ -2467,6 +2684,128 @@ const filteredFiles = useMemo(() => {
     } catch (err: any) {
       t.fail("note save", err);
       Alert.alert("Error", "Could not save note.");
+    }
+  };
+
+  const resolveStoredFileName = (
+    displayName: string,
+    file: { name?: string; type?: string; contentType?: string } | null | undefined
+  ): string => {
+    let name = String(displayName ?? "").trim().slice(0, 80);
+    if (!name || !file) return name;
+    if (isLikelyNoteFile(file.name, file.type, file.contentType)) {
+      const orig = String(file.name ?? "");
+      const extMatch = orig.match(/\.(txt|md|text)$/i);
+      if (extMatch && !/\.(txt|md|text)$/i.test(name)) {
+        name = `${name}.${extMatch[1]}`;
+      }
+    }
+    return name;
+  };
+
+  const handleRenameFile = async (fileId: string, displayName: string): Promise<string | undefined> => {
+    const id = String(fileId ?? "").trim();
+    if (!id) return undefined;
+    const source =
+      userFiles.find((f: any) => String(f.id) === id) ??
+      selectedFile ??
+      selectedBundle?.files?.find((f: any) => String(f.id) === id);
+    const name = resolveStoredFileName(displayName, source);
+    if (!name) return undefined;
+    try {
+      await updateFileName(id, name);
+      setUserFiles((prev) =>
+        prev.map((f: any) => (String(f.id) === id ? { ...f, name } : f))
+      );
+      setSelectedFile((prev: any) =>
+        prev && String(prev.id) === id ? { ...prev, name } : prev
+      );
+      setSelectedBundle((prev: any) => {
+        if (!prev?.files?.some((f: any) => String(f.id) === id)) return prev;
+        return {
+          ...prev,
+          files: prev.files.map((f: any) =>
+            String(f.id) === id ? { ...f, name } : f
+          ),
+        };
+      });
+      setBundles((prev) =>
+        prev.map((b: any) => {
+          if (!Array.isArray(b?.files)) return b;
+          if (!b.files.some((f: any) => String(f.id) === id)) return b;
+          return {
+            ...b,
+            files: b.files.map((f: any) =>
+              String(f.id) === id ? { ...f, name } : f
+            ),
+          };
+        })
+      );
+      if (!id.startsWith("opt-")) {
+        await enqueue({ op: "rename_file", fileId: id, name });
+        markLocalChangePending();
+      }
+      return name;
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Could not rename file");
+      return undefined;
+    }
+  };
+
+  const handleRemoveFileFromLinq = async (fileId: string) => {
+    const targetId = String(selectedBundle?.id ?? "").trim();
+    const removeId = String(fileId ?? "").trim();
+    if (!targetId || !removeId) return;
+
+    const baseBundle =
+      selectedBundle ??
+      bundles.find((b: any) => String(b.id) === targetId);
+    const currentIds = (
+      baseBundle?.bundledFileIds ??
+      (Array.isArray(baseBundle?.files)
+        ? baseBundle.files.map((f: any) => String(f.id))
+        : [])
+    )
+      .map((id: string) => String(id))
+      .filter(Boolean);
+    const nextIds = currentIds.filter((id: string) => id !== removeId);
+    if (nextIds.length === currentIds.length) return;
+
+    try {
+      await updateBundleChildIds(targetId, nextIds);
+      if (!targetId.startsWith("opt-")) {
+        await enqueue({
+          op: "remove_from_bundle",
+          bundleId: targetId,
+          childLocalIds: [removeId],
+        });
+        bundlesApi.invalidateBundleContentsCache(targetId);
+      }
+
+      const nextFiles = (Array.isArray(baseBundle?.files) ? baseBundle.files : []).filter(
+        (f: any) => String(f.id) !== removeId
+      );
+      const updatedBundle = {
+        ...(baseBundle ?? {
+          id: targetId,
+          name: "linq",
+          type: "Link",
+          typeColor: colorFromCategory("Link"),
+          creator: email ?? "",
+          createdAt: new Date().toISOString(),
+        }),
+        bundledFileIds: nextIds,
+        files: nextFiles,
+        content: `linq containing ${nextFiles.length} file(s)`,
+      };
+
+      setSelectedBundle(updatedBundle);
+      setBundles((prev) =>
+        prev.map((b: any) => (String(b.id) === targetId ? updatedBundle : b))
+      );
+      markLocalChangePending();
+    } catch (err: any) {
+      Alert.alert("Error", err?.message ?? "Could not remove file from linq");
     }
   };
 
@@ -2540,7 +2879,7 @@ const openBundleDetail = async (bundle: any) => {
         setSelectedBundle({
           ...bundle,
           files,
-          name: (bundle.name === "Bundle" || bundle.name === "bundle") ? "linq" : bundle.name,
+          name: resolveLinqDisplayName(bundle.name),
           url: requestedBundleId ? `${API_BASE}/file/${requestedBundleId}` : bundle.url,
         });
         setSelectedBundleUuid(requestedBundleId);
@@ -2548,7 +2887,7 @@ const openBundleDetail = async (bundle: any) => {
         openedInstant = true;
         break;
       }
-      if (a < 21) await new Promise((r) => setTimeout(r, 220));
+      if (a < 21) await new Promise<void>((resolve) => setTimeout(() => resolve(), 220));
     }
     if (openedInstant) {
       openingBundleIdRef.current = null;
@@ -2576,14 +2915,14 @@ const openBundleDetail = async (bundle: any) => {
 
   // Slow path: open the linq shell immediately, then fill children async.
   bundle.name =
-    bundle.name === "Bundle" || bundle.name === "bundle" ? "linq" : bundle.name;
+    resolveLinqDisplayName(bundle.name);
   bundle.url = requestedBundleId
     ? `${API_BASE}/file/${requestedBundleId}`
     : bundle.url;
   setSelectedBundle({
     ...bundle,
     files: enrichBundleFileTypeColors(bundle.files),
-    name: (bundle.name === "Bundle" || bundle.name === "bundle") ? "linq" : bundle.name,
+    name: resolveLinqDisplayName(bundle.name),
     url: requestedBundleId ? `${API_BASE}/file/${requestedBundleId}` : bundle.url,
     isHydratingChildren: true,
   });
@@ -2634,12 +2973,14 @@ const openBundleDetail = async (bundle: any) => {
       }
       setSelectedBundle((cur: any) => {
         if (!cur || String(cur.serverId ?? cur.id ?? "") !== requestedBundleId) return cur;
+        const incoming = enrichBundleFileTypeColors(bundle.files);
+        const mergedFiles = mergePreservedChildFileRows(incoming, cur.files);
         return {
           ...cur,
-          files: enrichBundleFileTypeColors(bundle.files),
+          files: mergedFiles,
           bundledFileIds: bundle.bundledFileIds,
           bundledUrls: bundle.bundledUrls,
-          content: `linq containing ${(bundle.files ?? []).length} file(s)`,
+          content: `linq containing ${mergedFiles.length} file(s)`,
           isHydratingChildren: true,
         };
       });
@@ -2650,7 +2991,7 @@ const openBundleDetail = async (bundle: any) => {
         tFetch1
       );
     } catch (e) {
-      console.warn(
+      logSafeWarn(
         `[linq·open] "${title}" · initial child list fetch failed · id${idSuffixForLog(requestedBundleId)}`,
         e
       );
@@ -2695,7 +3036,7 @@ const openBundleDetail = async (bundle: any) => {
         tFetch2
       );
     } catch (e) {
-      console.warn(
+      logSafeWarn(
         `[linq·open] "${title}" · re-fetch before URL hydration failed · id${idSuffixForLog(requestedBundleId)}`,
         e
       );
@@ -2704,14 +3045,14 @@ const openBundleDetail = async (bundle: any) => {
 
   // ── Set display fields and show the sheet immediately from local rows ─
   bundle.name =
-    bundle.name === "Bundle" || bundle.name === "bundle" ? "linq" : bundle.name;
+    resolveLinqDisplayName(bundle.name);
   bundle.url = requestedBundleId
     ? `${API_BASE}/file/${requestedBundleId}`
     : bundle.url;
   const localFirstBundle = {
     ...bundle,
     files: enrichBundleFileTypeColors(bundle.files),
-    name: (bundle.name === "Bundle" || bundle.name === "bundle") ? "linq" : bundle.name,
+    name: resolveLinqDisplayName(bundle.name),
     url: requestedBundleId ? `${API_BASE}/file/${requestedBundleId}` : bundle.url,
     isHydratingChildren: !bundleChildRowsAreDisplayReady(bundle.files),
   };
@@ -2736,11 +3077,12 @@ const openBundleDetail = async (bundle: any) => {
       if (bundleOpenTokenRef.current === openToken) {
         setSelectedBundle((cur: any) => {
           if (!cur || String(cur.serverId ?? cur.id ?? "") !== requestedBundleId) return cur;
+          const mergedFiles = mergePreservedChildFileRows(bundle.files, cur.files);
           return {
             ...cur,
-            files: bundle.files,
-            content: `linq containing ${bundle.files.length} file(s)`,
-            isHydratingChildren: !bundleChildRowsAreDisplayReady(bundle.files),
+            files: mergedFiles,
+            content: `linq containing ${mergedFiles.length} file(s)`,
+            isHydratingChildren: !bundleChildRowsAreDisplayReady(mergedFiles),
           };
         });
       }
@@ -2752,7 +3094,7 @@ const openBundleDetail = async (bundle: any) => {
           startedAt,
           attemptStart
         );
-        await new Promise((r) => setTimeout(r, HYDRATE_BACKOFF_MS));
+        await new Promise<void>((resolve) => setTimeout(() => resolve(), HYDRATE_BACKOFF_MS));
       }
     }
     logPerf(
@@ -2761,7 +3103,7 @@ const openBundleDetail = async (bundle: any) => {
       startedAt
     );
   } catch (e) {
-    console.warn(
+    logSafeWarn(
       `[linq·open] "${title}" · URL / nested fetch failed · id${idSuffixForLog(requestedBundleId)}`,
       e
     );
@@ -2771,7 +3113,7 @@ const openBundleDetail = async (bundle: any) => {
   // 🛠 Fix the browser route URL for bundles (no /api)
   const cleanedBundle = {
     ...bundle,
-    name: (bundle.name === "Bundle" || bundle.name === "bundle") ? "linq" : bundle.name,
+    name: resolveLinqDisplayName(bundle.name),
     url: requestedBundleId ? `${API_BASE}/file/${requestedBundleId}` : bundle.url, // <-- site route
     isHydratingChildren: !bundleChildRowsAreDisplayReady(bundle.files),
   };
@@ -2851,7 +3193,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
 
           try {
             const newBundleObject = await withAction(async () => {
-              console.log(
+              devLog(
                 `[linq·extract] merge nested id${idSuffixForLog(nestedBundleId)} → parent id${idSuffixForLog(parentBundleId)}`
               );
 
@@ -2876,7 +3218,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
                 else parentFileIds.push(cid);
               }
 
-              console.log(
+              devLog(
                 `[linq·extract] parent: ${parentFileIds.length} files, ${parentOtherBundles.length} other linqs`
               );
 
@@ -2898,7 +3240,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
                 else nestedFileIds.push(cid);
               }
 
-              console.log(
+              devLog(
                 `[linq·extract] nested: ${nestedFileIds.length} files, ${nestedBundles.length} linqs`
               );
 
@@ -2916,7 +3258,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
               const combinedFileIds = [...allFileIds, ...allBundleIds];
               const uniqueFileIds = Array.from(new Set(combinedFileIds));
 
-              console.log(
+              devLog(
                 `[linq·extract] create merged linq · ${uniqueFileIds.length} items (${allFileIds.length} files + ${allBundleIds.length} linqs)`
               );
 
@@ -2931,13 +3273,19 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
               }
               if (!newBundleId && Array.isArray(connectResponse.data?.links)) {
                 const candidate = connectResponse.data.links.find(
-                  (x: any) => String(x?.type ?? "").toLowerCase() === "bundle" && x?.id
+                  (x: any) =>
+                    ["bundle", "link", "linq"].includes(
+                      String(x?.type ?? "").toLowerCase()
+                    ) && x?.id
                 );
                 if (candidate?.id) newBundleId = String(candidate.id).trim();
               }
               if (!newBundleId && Array.isArray(connectResponse.data)) {
                 const bundlesInResponse = connectResponse.data.filter(
-                  (item: any) => String(item?.type ?? "").toLowerCase() === "bundle"
+                  (item: any) =>
+                    ["bundle", "link", "linq"].includes(
+                      String(item?.type ?? "").toLowerCase()
+                    )
                 );
                 if (bundlesInResponse.length > 0 && bundlesInResponse[0]?.id) {
                   newBundleId = String(bundlesInResponse[0].id).trim();
@@ -2945,27 +3293,29 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
               }
 
               if (!newBundleId) {
-                console.warn("createBundle response had unexpected shape (payload redacted)");
+                logSafeWarn("createBundle response had unexpected shape");
                 throw new Error("Could not determine new bundle id from connect response");
               }
 
-              console.log(`[linq·extract] created id${idSuffixForLog(newBundleId)}`);
+              devLog(`[linq·extract] created id${idSuffixForLog(newBundleId)}`);
 
               const oldBundleIds = [parentBundleId, nestedBundleId];
               const deleteResults = await Promise.allSettled(
                 oldBundleIds.map((id) => filesApi.deleteFileById(id))
               );
               const deleteFailures = deleteResults
-                .map((res, idx) => ({ res, id: oldBundleIds[idx] }))
-                .filter((x) => x.res.status === "rejected");
+                .map((res: PromiseSettledResult<unknown>, idx: number) => ({
+                  res,
+                  id: oldBundleIds[idx],
+                }))
+                .filter((x: { res: PromiseSettledResult<unknown> }) => x.res.status === "rejected");
               if (deleteFailures.length === 0) {
-                console.log(`[linq·extract] removed old linqs`);
+                devLog(`[linq·extract] removed old linqs`);
               } else {
-                deleteFailures.forEach(({ res, id }) => {
-                  console.warn(
-                    `[linq·extract] delete old id${idSuffixForLog(id)} failed:`,
-                    (res as PromiseRejectedResult).reason?.message ??
-                      (res as PromiseRejectedResult).reason
+                deleteFailures.forEach(({ res, id }: { res: PromiseSettledResult<unknown>; id: string }) => {
+                  logSafeWarn(
+                    `[linq·extract] delete old id${idSuffixForLog(id)} failed`,
+                    res.status === "rejected" ? res.reason : undefined
                   );
                 });
               }
@@ -2979,7 +3329,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
               const extractStartedAt = Date.now();
               const verify = await bundlesApi.getContents(newBundleId);
               const bundleChildren = Array.isArray(verify.children) ? verify.children : [];
-              console.log(
+              devLog(
                 `[linq·extract] verify id${idSuffixForLog(newBundleId)} · ${bundleChildren.length} children`
               );
 
@@ -3012,7 +3362,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
               Alert.alert("Error", "Nested link has no files to extract");
               return;
             }
-            console.error("Extract contents error:", err);
+            logSafeError("Extract contents error", err);
             Alert.alert("Error", err?.message ?? "Failed to extract contents.");
           }
         },
@@ -3057,7 +3407,12 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
               await withAction(async () => {
                 // Offline-safe: write to SQLite + outbox first, server will catch up later.
                 for (const id of ids) {
-                  if (String(id).startsWith('opt-')) {
+                  const selectedRow =
+                    userFiles.find((f: any) => String(f?.id) === String(id)) ??
+                    bundlesRef.current.find((b: any) => String(b?.id) === String(id));
+                  const neverSynced =
+                    isLegacyOptId(id) || Number(selectedRow?.dirty) === 1;
+                  if (neverSynced) {
                     // Never reached the server — cancel any pending upload/linq jobs and purge locally.
                     await cancelJobsForId(id);
                     await purgeFile(id);
@@ -3145,7 +3500,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     // The home effect loads SQLite. Server sync only runs after a manual action.
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setIsLoggedIn(false);
     setEmail(undefined);
     setSelectedFiles(new Set());
@@ -3155,10 +3510,16 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     setUserFiles([]);
     setScreen("landing");
     setInitialListLoaded(false);
-    // Clear SQLite local data and in-memory caches
-    clearAllLocalData().catch((e) => console.warn('clearAllLocalData failed:', e));
-    clearDownloadCache().catch((e) => console.warn('clearDownloadCache failed:', e));
-    // Reset optimization state so the next login starts fresh
+    // Drop the previous user's JWT immediately — otherwise the next account's
+    // first sync can reuse it while the 10s token cache is still warm.
+    clearTokenCache();
+    try {
+      await clearAllLocalData();
+      await clearDownloadCache();
+      await clearOfflineDir();
+    } catch (e) {
+      logSafeWarn("logout wipe failed", e);
+    }
     lastFingerprintRef.current = null;
     syncInFlightRef.current = false;
     hasServerDataRef.current = false;
@@ -3185,7 +3546,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
       const finalExt = wasHeic && !stillHeicAfterConvert ? ".jpg" : ext;
       const extClean = finalExt.replace(/^\./, "").toLowerCase();
       const fileName = getDefaultFileName("photo", finalExt);
-      const localId = `opt-${Date.now()}`;
+      const localId = newLocalFileId();
       const cat = categoryFromExt(extClean);
 
       // Save locally first — works offline, enqueues upload for later
@@ -3227,7 +3588,7 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     return (
       <LandingScreen
         onLoginPress={() => setScreen("login")}
-        onSignUpPress={() => setScreen("signup")}
+        onWaitlistPress={() => setScreen("waitlist")}
         onSocialSuccess={() => handleLoginSuccess()}
       />
     );
@@ -3251,6 +3612,10 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
     );
   }
 
+  if (screen === "waitlist") {
+    return <WaitlistScreen onBackPress={() => setScreen("landing")} />;
+  }
+
   // ===== Main home =====
   return (
     <SafeAreaView className="flex-1 bg-background">
@@ -3266,16 +3631,59 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
         onFilterPress={() => setIsFilterVisible(true)}
         appliedFilterCount={appliedFilterCount}
         selectedFileCount={selectedFiles.size}
-        onDeleteSelected={handleBulkDeleteSelected}
+        onDeleteSelected={addingToLinq ? undefined : handleBulkDeleteSelected}
         isDeletingFiles={isDeletingFiles}
         syncStatus={syncStatus}
+        downloadProgress={downloadProgress}
         hasPendingLocalChanges={hasPendingLocalChanges}
         onSyncPress={triggerSync}
       />
 
+      {addingToLinq ? (
+        <View className="px-6 pb-2">
+          <View
+            className="rounded-lg px-3 py-2 flex-row items-center"
+            style={{
+              backgroundColor: "rgba(215, 130, 126, 0.14)",
+              borderWidth: 1,
+              borderColor: "rgba(215, 130, 126, 0.4)",
+            }}
+          >
+            <Text
+              className="text-white flex-1 mr-2"
+              numberOfLines={1}
+            >
+              Adding to {addingToLinq.name}
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                setAddingToLinq(null);
+                setSelectedFiles(new Set());
+              }}
+              style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel adding to linq"
+            >
+              <Text className="text-gray-400 font-semibold">Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => void confirmAddToLinq()}
+              style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Add selected files to linq"
+            >
+              <Text style={{ color: "#D7827E", fontWeight: "700" }}>
+                linq{selectedFiles.size > 0 ? ` ${selectedFiles.size}` : ""}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
       <FileList
         files={filteredFiles ?? []}
         selectedFiles={selectedFiles ?? new Set<string>()}
+        lockedFileIds={lockedLinqFileIds}
         onFilePress={handleFilePress}
         onToggleFileSelection={(fileId: string) => toggleFileSelection(fileId)}//{toggleFileSelection}
         getTypeColor={getTypeColor}
@@ -3305,22 +3713,37 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
         onSave={handleNoteSave}
       />
 
+      <NameLinqModal
+        visible={linqNameModal.visible}
+        initialName={linqNameModal.preset}
+        onCancel={() =>
+          setLinqNameModal({ visible: false, preset: "", selectedIds: [] })
+        }
+        onSave={(name) => void confirmCreateLinq(name)}
+      />
+
       <FileDetailModal
         isVisible={isFileDetailVisible}
         selectedFile={selectedFile}
         onClose={() => setIsFileDetailVisible(false)}
         getTypeColor={getTypeColor}
         fetchUrl={fetchUrl}
+        onRename={async (nextName) => {
+          const id = String(selectedFile?.id ?? "").trim();
+          if (!id) return;
+          await handleRenameFile(id, nextName);
+        }}
       />
 
       <BundleModal
         isVisible={isBundleDetailVisible}
         bundleData={selectedBundle}
         onClose={() => {
+          // Hide first so BundleModal can dismiss via visible={false}.
+          setIsBundleDetailVisible(false);
           bundleOpenTokenRef.current = null;
           setSelectedBundleUuid(null);
           setSelectedBundle(null);
-          setIsBundleDetailVisible(false);
         }}
         getTypeColor={getTypeColor}
         onNestedBundlePress={(nestedBundle) => {
@@ -3348,6 +3771,41 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
         }}
         onExtractContents={handleExtractContents}
         fetchUrl={fetchUrl}
+        onAddFiles={() => {
+          if (!selectedBundle?.id) return;
+          const childIds = Array.isArray(selectedBundle.bundledFileIds)
+            ? selectedBundle.bundledFileIds.map((id: string) => String(id))
+            : [];
+          setAddingToLinq({
+            id: String(selectedBundle.id),
+            name: String(selectedBundle.name ?? "linq"),
+            childIds,
+          });
+          setSelectedFiles(new Set());
+          setIsBundleDetailVisible(false);
+        }}
+        onRename={async (nextName: string) => {
+          const id = String(selectedBundle?.id ?? "").trim();
+          const name = String(nextName ?? "").trim().slice(0, 80);
+          if (!id || !name) return;
+          try {
+            await updateBundleName(id, name);
+            setSelectedBundle((prev: any) => (prev ? { ...prev, name } : prev));
+            setBundles((prev) =>
+              prev.map((b: any) =>
+                String(b.id) === id ? { ...b, name } : b
+              )
+            );
+            if (!id.startsWith("opt-")) {
+              await enqueue({ op: "rename_bundle", bundleId: id, name });
+              markLocalChangePending();
+            }
+          } catch (e: any) {
+            Alert.alert("Error", e?.message ?? "Could not rename linq");
+          }
+        }}
+        onRenameFile={handleRenameFile}
+        onRemoveFile={(fileId) => void handleRemoveFileFromLinq(fileId)}
       />
 
       <CameraModal
@@ -3386,9 +3844,25 @@ const handleExtractContents = async (nestedBundle: any, nestedBundleFile: any) =
           try {
             await signOut();
           } finally {
-            setIsSettingsModalVisible(false); 
-            handleLogout();
+            setIsSettingsModalVisible(false);
+            await handleLogout();
           }
+        }}
+        onDeleteAccount={async () => {
+          try {
+            await filesApi.deleteAccount();
+          } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : "Could not delete account";
+            Alert.alert("Error", message);
+            return;
+          }
+          try {
+            await signOut();
+          } catch {
+            // User row is already gone on Clerk; still clear local session.
+          }
+          setIsSettingsModalVisible(false);
+          await handleLogout();
         }}
       />
     </SafeAreaView>

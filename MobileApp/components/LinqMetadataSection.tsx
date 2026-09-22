@@ -1,13 +1,11 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, Clipboard, StyleSheet } from "react-native";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
-import { faCopy, faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { FontAwesomeIcon } from "./AppIcon";
+import { faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import {
   getLinqDetailFields,
-  getFilePreviewUrl,
   getFilePreviewUrlLabel,
   isFilePreviewUrlLive,
-  ICON_HIT_SLOP,
 } from "../utils/helpers";
 import { openHttpUrl } from "../utils/openHttpUrl";
 
@@ -16,6 +14,10 @@ type BaseLinqProps = {
   createdAt?: string | number | Date | null;
   date?: string | null;
   creator?: string | null;
+  /** Pending local upload — URL shown but not clickable yet. */
+  dirty?: number | boolean | null;
+  /** Device network online — link opens only when true. */
+  isOnline?: boolean;
 };
 
 /** Label column width — keeps every value left-aligned in the dense layout. */
@@ -47,56 +49,45 @@ export function MetadataRow({
 
 /**
  * Shows `https://…/preview/{id}` whenever an id exists.
- * Live (server) ids are tappable; pending opt- ids show the same URL as plain text.
+ * UUID ids show the final URL offline; clickable only when synced + online.
  */
-function MetadataUrlRow({ fileId }: { fileId?: string | null }) {
-  const [copied, setCopied] = useState(false);
+function MetadataUrlRow({
+  fileId,
+  dirty,
+  isOnline,
+}: {
+  fileId?: string | null;
+  dirty?: number | boolean | null;
+  isOnline?: boolean;
+}) {
   const id = String(fileId ?? "").trim();
   if (!id) return null;
 
   const urlLabel = getFilePreviewUrlLabel(id);
-  const liveUrl = getFilePreviewUrl(id);
-  const isLive = isFilePreviewUrlLive(id);
+  if (!urlLabel) return null;
 
-  const handleCopy = () => {
-    const toCopy = liveUrl || urlLabel;
-    if (!toCopy) return;
-    Clipboard.setString(toCopy);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const liveUrl = urlLabel;
+  const isLive = isFilePreviewUrlLive(id, {
+    dirty: dirty ?? undefined,
+    isOnline,
+  });
 
+  // Copying happens from the header's Copy button now, not inline here.
   return (
     <View style={styles.row}>
       <Text style={styles.label}>Link</Text>
       {isLive && liveUrl ? (
-        <>
-          <TouchableOpacity
-            onPress={() => void openHttpUrl(liveUrl)}
-            activeOpacity={0.75}
-            accessibilityRole="link"
-            accessibilityLabel={`Open ${liveUrl}`}
-            style={styles.linkTouch}
-            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-          >
-            <Text style={styles.link} numberOfLines={1} ellipsizeMode="tail">
-              {liveUrl}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleCopy}
-            hitSlop={ICON_HIT_SLOP}
-            accessibilityLabel="Copy file link"
-            accessibilityRole="button"
-            style={styles.copyButton}
-          >
-            <FontAwesomeIcon
-              icon={faCopy}
-              size={14}
-              color={copied ? "#86EFAC" : "#9CA3AF"}
-            />
-          </TouchableOpacity>
-        </>
+        <TouchableOpacity
+          onPress={() => void openHttpUrl(liveUrl)}
+          activeOpacity={0.75}
+          accessibilityRole="link"
+          accessibilityLabel={`Open ${liveUrl}`}
+          style={styles.linkTouch}
+        >
+          <Text style={styles.link} numberOfLines={1} ellipsizeMode="tail">
+            {liveUrl}
+          </Text>
+        </TouchableOpacity>
       ) : (
         <Text style={styles.value} numberOfLines={1} ellipsizeMode="tail" selectable>
           {urlLabel}
@@ -115,7 +106,11 @@ function MetadataBody(props: BaseLinqProps & { displayName?: string }) {
       {displayName ? <MetadataRow label="Name" value={displayName} /> : null}
       <MetadataRow label="Created" value={f.created} />
       <MetadataRow label="Creator" value={f.creator} />
-      <MetadataUrlRow fileId={rest.id} />
+      <MetadataUrlRow
+        fileId={rest.id}
+        dirty={rest.dirty}
+        isOnline={rest.isOnline}
+      />
       <MetadataRow label="File ID" value={f.fileId} />
       <MetadataRow label="UTC" value={f.utc} />
     </View>
@@ -146,7 +141,6 @@ export function CollapsibleFileDetails({
       <TouchableOpacity
         onPress={() => setExpanded((v) => !v)}
         activeOpacity={0.7}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         style={styles.summaryRow}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
@@ -190,14 +184,16 @@ const styles = StyleSheet.create({
     borderColor: "#374151",
     borderRadius: 10,
     backgroundColor: "rgba(31, 41, 55, 0.45)",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   summaryRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    minHeight: 26,
+    // 48 is the accessibility-minimum touch target — kept as-is even though
+    // the panel's own padding shrank, so the row stays tappable.
+    minHeight: 48,
   },
   summary: {
     color: "#D1D5DB",
@@ -216,15 +212,15 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   body: {
-    marginTop: 8,
+    marginTop: 4,
     borderTopWidth: 1,
     borderTopColor: "#374151",
-    paddingTop: 8,
+    paddingTop: 6,
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 5,
+    marginBottom: 4,
   },
   label: {
     width: LABEL_WIDTH,
@@ -245,9 +241,5 @@ const styles = StyleSheet.create({
     color: "#60A5FA",
     fontSize: 12,
     textDecorationLine: "underline",
-  },
-  copyButton: {
-    marginLeft: 8,
-    padding: 2,
   },
 });

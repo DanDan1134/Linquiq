@@ -9,32 +9,32 @@ import {
   Image,
   Platform,
   Alert,
+  Clipboard,
   Dimensions,
   StyleSheet,
   Modal,
+  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
-import {
-  faXmark,
-  faChevronLeft,
-} from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "./AppIcon";
+import { faXmark, faCopy, faPen } from "@fortawesome/free-solid-svg-icons";
 import { Audio, AVPlaybackStatus } from "expo-av";
 import { useVideoPlayer, VideoView } from "expo-video";
 import {
   getDisplayFileNameForUi,
   getFilePreviewUrl,
+  isSitePreviewUrl,
   isOfflineImageOrPdfPreviewBlocked,
   previewFixingMessage,
   formatLinqCreatedDisplay,
-  HEADER_CLOSE_HIT_SLOP,
 } from "../utils/helpers";
+import { logSafeError } from "../utils/safeLog";
 import { PreviewFallbackBanner } from "./PreviewFallbackBanner";
 import { OfflinePreviewNotice } from "./OfflinePreviewNotice";
 import { CollapsibleFileDetails } from "./LinqMetadataSection";
 import "../global.css";
-import { openDocumentFromLocalOrDownload } from "../utils/openHttpUrl";
+import { pdfOriginWhitelist } from "../utils/pdfWebView";
 import { FullscreenImageOverlay } from "./FullscreenImageOverlay";
 import { useNetInfo } from "@react-native-community/netinfo";
 
@@ -47,6 +47,14 @@ type FileDetailModalProps = {
   fetchUrl?: (fileId: string) => Promise<string | null>;
   /** When true, open directly in fullscreen (e.g. linq child). Back from fullscreen dismisses to the linq, not compact preview. */
   startFullscreen?: boolean;
+  /**
+   * Render as an absolute-fill overlay inside the parent's own <Modal> instead of
+   * mounting a second native Modal. Stacking two RN Modals on iOS leaves the outer
+   * Modal's touch handler broken after the inner one closes (buttons go dead/offset
+   * everywhere until the app restarts) — see BundleModal's nested usage.
+   */
+  hostedInModal?: boolean;
+  onRename?: (name: string) => void | Promise<void>;
 };
 
 // Strip HTML to plain text and preserve line breaks (web app uses <p>, <br>, etc.)
@@ -105,6 +113,8 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
   getTypeColor,
   fetchUrl,
   startFullscreen = false,
+  hostedInModal = false,
+  onRename,
 }) => {
   // ⚠️ Do NOT return before hooks; decide rendering after hooks run.
   const hidden = !isVisible || !selectedFile;
@@ -113,25 +123,41 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     selectedFile?.local_uri && String(selectedFile.local_uri).trim() !== ""
       ? String(selectedFile.local_uri)
       : undefined;
-  const fileUrl: string | undefined = localUri || selectedFile?.url;
+  // Never trust `selectedFile.url` here — it's a presigned S3 link cached from
+  // whenever this row was last synced/hydrated, and can be well past its
+  // expiry by the time the user opens it. Only a real on-device copy
+  // (`localUri`) is safe to reuse indefinitely; everything remote is always
+  // re-fetched fresh below when online, matching the web app's behavior.
+  const fileUrl: string | undefined =
+    localUri && !isSitePreviewUrl(localUri) ? localUri : undefined;
   const previewUrl = getFilePreviewUrl(selectedFile?.id) || undefined;
-  /** Prefer direct `url` / `local_uri`; else API preview so thumbnails and tiles still load. */
-  const displayMediaUri: string | undefined =
-    (fileUrl && String(fileUrl).trim() !== "" ? fileUrl : undefined) ??
-    (previewUrl && String(previewUrl).trim() !== "" ? previewUrl : undefined);
+  /** Prefer direct media URL / local_uri. Site preview is share-only, not for RN media. */
+  const [hydratedRemoteUrl, setHydratedRemoteUrl] = useState<string | undefined>(
+    undefined
+  );
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const displayMediaUri: string | undefined = (() => {
+    const primary = fileUrl && String(fileUrl).trim() !== "" ? fileUrl : undefined;
+    if (primary) return primary;
+    const hydrated =
+      hydratedRemoteUrl && String(hydratedRemoteUrl).trim() !== ""
+        ? hydratedRemoteUrl
+        : undefined;
+    return hydrated && !isSitePreviewUrl(hydrated) ? hydrated : undefined;
+  })();
 
   const typeLabel = (selectedFile?.type ?? "").toString().toLowerCase();
   const bundleLikeRow =
     typeLabel === "link" ||
     typeLabel === "bundle" ||
     typeLabel === "linq";
-  const headerTitle = bundleLikeRow
-    ? getDisplayFileNameForUi(
-        selectedFile?.name,
-        selectedFile?.type,
-        selectedFile?.contentType
-      )
-    : String(selectedFile?.type ?? "File");
+  const headerTitle = getDisplayFileNameForUi(
+    selectedFile?.name,
+    selectedFile?.type,
+    selectedFile?.contentType
+  );
 
   // Derive extension hints (use displayMediaUri so extension works with preview-only URLs)
   const urlExt = (() => {
@@ -153,14 +179,14 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     /\.pdf$/i.test(nameLower) ||
     /\.pdf$/i.test(filePathLower);
 
-  // Preview detectors
-  const isImagePreview = Boolean(
-    displayMediaUri &&
-      (typeLabel.includes("image") ||
-        ["png", "jpg", "jpeg", "gif", "bmp", "webp", "heic"].includes(serverExt) ||
-        /\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(nameLower) ||
-        /\.(png|jpe?g|gif|bmp|webp|heic)$/i.test(filePathLower))
-  );
+  // Preview detectors (type-based so we can hydrate a URL before displayMediaUri exists)
+  const isImageLike =
+    typeLabel.includes("image") ||
+    ["png", "jpg", "jpeg", "gif", "bmp", "webp", "heic"].includes(serverExt) ||
+    /\.(png|jpg|jpeg|gif|bmp|webp|heic)$/i.test(nameLower) ||
+    /\.(png|jpe?g|gif|bmp|webp|heic)$/i.test(filePathLower);
+
+  const isImagePreview = Boolean(isImageLike);
 
   const isAudioPreview = Boolean(
     displayMediaUri &&
@@ -198,18 +224,16 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       ((fileUrl && serverExt === "md") ||
         (inlineBody && (serverExt === "md" || /\.md$/i.test(nameLower))))
   );
-  const isPdfPreview = Boolean(displayMediaUri && isPdfLike);
+  const isPdfPreview = Boolean(isPdfLike);
 
   const isDocPreview = Boolean(
-    displayMediaUri &&
-      (serverExt === "doc" ||
-        serverExt === "docx" ||
-        /\.docx?$/i.test(nameLower) ||
-        serverExt === "application/msword" ||
-        serverExt ===
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    serverExt === "doc" ||
+      serverExt === "docx" ||
+      /\.docx?$/i.test(nameLower) ||
+      serverExt === "application/msword" ||
+      serverExt ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   );
-  const isDocumentLike = isPdfLike || isDocPreview;
   // ---- Text / Markdown content (inline body or fetch from URL) ----
   const [textContent, setTextContent] = useState<string | null>(null);
   const [loadingText, setLoadingText] = useState(false);
@@ -373,7 +397,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
         }
       }
     } catch (err) {
-      console.error("Failed to toggle audio playback", err);
+      logSafeError("Failed to toggle audio playback", err);
       Alert.alert("Error", "Failed to play this audio file.");
     } finally {
       setIsAudioLoading(false);
@@ -395,7 +419,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       await audioSound.setPositionAsync(valueMs);
       setAudioProgressMs(valueMs);
     } catch (err) {
-      console.error("Failed to seek audio", err);
+      logSafeError("Failed to seek audio", err);
     }
   };
 
@@ -416,6 +440,34 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
   const [fullscreenImageUri, setFullscreenImageUri] = useState<string | null>(null);
   const netInfo = useNetInfo();
   const isOnline = netInfo.isConnected !== false;
+
+  // Hydrate a presigned media URL when openFileDetail could not supply one.
+  useEffect(() => {
+    if (!isVisible) {
+      setHydratedRemoteUrl(undefined);
+      return;
+    }
+    setHydratedRemoteUrl(undefined);
+    if (fileUrl) return;
+    if (!fetchUrl) return;
+    const id = String(selectedFile?.id ?? "").trim();
+    if (!id || id.startsWith("opt-")) return;
+    if (!isOnline) return;
+
+    let cancelled = false;
+    void fetchUrl(id)
+      .then((remote) => {
+        if (cancelled) return;
+        const u = String(remote ?? "").trim();
+        if (u && !isSitePreviewUrl(u)) setHydratedRemoteUrl(u);
+      })
+      .catch(() => {
+        /* non-fatal — fallback banner handles missing media */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, fileUrl, selectedFile?.id, fetchUrl, isOnline]);
   /** Image preview: avoid a blank tile while decoding or on failure. */
   const [imagePreviewStatus, setImagePreviewStatus] = useState<
     "loading" | "ready" | "error"
@@ -429,14 +481,24 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
   );
   const insets = useSafeAreaInsets();
 
-  const contentFullscreen =
-    fullscreenOverride !== undefined
+  // Standalone host uses a real fullScreen Modal (no transparent sheet). Nested
+  // host (Bundle) keeps the existing startFullscreen / override behavior.
+  const contentFullscreen = !hostedInModal
+    ? true
+    : fullscreenOverride !== undefined
       ? fullscreenOverride
       : Boolean(isVisible && startFullscreen);
 
   useEffect(() => {
-    if (!isVisible) setFullscreenImageUri(null);
-  }, [isVisible, selectedFile?.id]);
+    if (!isVisible) {
+      setIsEditingName(false);
+      setFullscreenImageUri(null);
+    }
+  }, [isVisible]);
+
+  useEffect(() => {
+    setIsEditingName(false);
+  }, [selectedFile?.id]);
 
   useEffect(() => {
     if (!isVisible || !isImagePreview) return;
@@ -457,7 +519,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       return;
     }
     const id = String(selectedFile?.id ?? "").trim();
-    if (!id || id.startsWith("opt-")) {
+    if (!id || id.startsWith("opt-") || Number(selectedFile?.dirty) === 1) {
       setAndroidPdfResolvedUri(null);
       return;
     }
@@ -520,20 +582,23 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
 
   const winH = Dimensions.get("window").height;
   const largePreview = contentFullscreen;
-  // Metadata now collapses, so previews can claim the space it used to occupy.
-  const videoPreviewHeight = largePreview ? Math.round(winH * 0.5) : 260;
-  const pdfPreviewHeight = largePreview ? Math.round(winH * 0.66) : 460;
+  // Compact (non-fullscreen) previews stay small so the sheet fits neatly on screen.
+  const videoPreviewHeight = largePreview ? Math.round(winH * 0.5) : 200;
+  const pdfPreviewHeight = largePreview ? Math.round(winH * 0.66) : 360;
   const imagePreviewHeight = largePreview
     ? Math.min(Math.round(winH * 0.56), 620)
-    : Math.round(winH * 0.34);
+    : Math.round(winH * 0.26);
 
-  const canOpenDocument =
-    Boolean(localUri) ||
-    (isOnline && Boolean(fileUrl || selectedFile?.url || previewUrl));
+  const previewLink = getFilePreviewUrl(selectedFile?.id);
 
-  const showHeaderViewEntry =
-    !contentFullscreen &&
-    Boolean(previewUrl || selectedFile?.url || fileUrl);
+  const canCopyLink = Boolean(previewLink);
+
+  const handleCopyLink = () => {
+    if (!previewLink) return;
+    Clipboard.setString(previewLink);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
 
   const offlineImageOrPdfBlocked = isOfflineImageOrPdfPreviewBlocked(
     isOnline,
@@ -544,22 +609,10 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
 
   const headerActionIconColor = "#F9FAFB";
 
-  const handleOpenDocument = async () => {
-    if (!isDocumentLike) return;
-    const sourceUri = String(localUri ?? fileUrl ?? selectedFile?.url ?? previewUrl ?? "").trim();
-    if (!sourceUri) {
-      Alert.alert("File not ready", "This document is still loading.");
-      return;
-    }
-    await openDocumentFromLocalOrDownload({
-      sourceUri,
-      fileName: displayFileName,
-      contentType: String(selectedFile?.contentType ?? ""),
-    });
-  };
-
-  // After all hooks are called, it's safe to render nothing.
-  if (hidden) return null;
+  // Nested View overlay can unmount when closed. Standalone Modal must stay
+  // mounted with visible={false} so iOS hit-testing is not left offset.
+  if (hostedInModal && hidden) return null;
+  if (!selectedFile) return null;
 
   /** Collapsed line: the two facts worth scanning without opening details. */
   const detailsSummary = [
@@ -585,98 +638,183 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
       createdAt={selectedFile.createdAt}
       date={selectedFile.date}
       creator={selectedFile.creator}
+      dirty={selectedFile.dirty}
+      isOnline={isOnline}
     />
   );
 
-  return (
-    <Modal
-      visible
-      transparent
-      animationType="none"
-      onRequestClose={onClose}
-      statusBarTranslucent
-    >
+  const overlay = (
     <View
-      className="flex-1"
+      className={contentFullscreen ? "bg-background" : undefined}
       style={[
-        { backgroundColor: "rgba(0,0,0,0.75)" },
+        hostedInModal
+          ? { ...StyleSheet.absoluteFillObject, zIndex: 50, elevation: 50 }
+          : { flex: 1 },
         contentFullscreen
-          ? { paddingBottom: insets.bottom }
-          : { justifyContent: "center", alignItems: "center" },
+          ? undefined
+          : {
+              backgroundColor: "rgba(0,0,0,0.75)",
+              justifyContent: "center",
+              alignItems: "center",
+            },
       ]}
     >
       <View
-        className={`bg-background ${contentFullscreen ? "" : "rounded-lg mx-6 w-11/12"}`}
+        className={contentFullscreen ? "" : "bg-background rounded-lg mx-4 w-11/12"}
         style={
           contentFullscreen
-            ? { flex: 1, width: "100%", maxHeight: "100%" }
-            : { maxHeight: "80%" }
+            ? { flex: 1, width: "100%" }
+            : { maxHeight: "72%" }
         }
       >
         {/* Header: title, one action, nothing else */}
         <View
           className="flex-row items-center border-b border-gray-600"
           style={{
-            paddingTop: contentFullscreen ? Math.max(insets.top, 8) + 6 : 14,
-            paddingBottom: 12,
-            paddingHorizontal: 12,
+            paddingTop: contentFullscreen ? Math.max(insets.top, 8) + 4 : 10,
+            paddingBottom: 8,
+            paddingHorizontal: 10,
           }}
         >
-          {contentFullscreen ? (
+          <View className="flex-row items-center flex-1 mx-1" style={{ minWidth: 0 }}>
+            <View
+              className={`w-2.5 h-2.5 rounded-full ${getTypeColor(selectedFile.typeColor)} mr-2.5`}
+            />
+            {isEditingName ? (
+              <TextInput
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                autoFocus
+                maxLength={80}
+                style={{
+                  flex: 1,
+                  color: "#fff",
+                  fontSize: 18,
+                  fontWeight: "600",
+                  minHeight: 44,
+                }}
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  const next = String(nameDraft ?? "").trim().slice(0, 80);
+                  setIsEditingName(false);
+                  if (next && onRename) void onRename(next);
+                }}
+                onBlur={() => {
+                  const next = String(nameDraft ?? "").trim().slice(0, 80);
+                  setIsEditingName(false);
+                  if (next && onRename) void onRename(next);
+                }}
+              />
+            ) : onRename ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setNameDraft(headerTitle);
+                  setIsEditingName(true);
+                }}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  flexDirection: "row",
+                  alignItems: "center",
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Rename ${headerTitle}`}
+              >
+                <Text
+                  className="text-white text-lg font-semibold"
+                  numberOfLines={1}
+                  style={{ flexShrink: 1 }}
+                >
+                  {headerTitle}
+                </Text>
+                <FontAwesomeIcon
+                  icon={faPen}
+                  size={12}
+                  color="#9CA3AF"
+                  style={{ marginLeft: 8 }}
+                />
+              </TouchableOpacity>
+            ) : (
+              <Text
+                className="text-white text-lg font-semibold"
+                numberOfLines={1}
+                style={{ flexShrink: 1 }}
+              >
+                {headerTitle}
+              </Text>
+            )}
+          </View>
+
+          <View className="flex-row items-center flex-shrink-0" style={{ gap: 14 }}>
+            {canCopyLink ? (
+              <TouchableOpacity
+                onPress={handleCopyLink}
+                style={styles.copyLinkButton}
+                accessibilityLabel="Copy file link"
+                accessibilityRole="button"
+              >
+                <FontAwesomeIcon
+                  icon={faCopy}
+                  size={13}
+                  color={linkCopied ? "#86EFAC" : "#9CA3AF"}
+                />
+                <Text
+                  style={{
+                    fontSize: 13,
+                    fontWeight: "500",
+                    color: linkCopied ? "#86EFAC" : "#9CA3AF",
+                    marginLeft: 4,
+                  }}
+                >
+                  {linkCopied ? "Copied!" : "Copy"}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {/* Always the same X, same slot, same size — never swaps icon or side
+                based on fullscreen state, so the button never appears to move. */}
             <TouchableOpacity
               onPress={() => {
-                if (startFullscreen) {
+                if (!contentFullscreen) {
+                  onClose();
+                  return;
+                }
+                if (startFullscreen || !hostedInModal) {
                   onClose();
                   return;
                 }
                 setFullscreenOverride(false);
               }}
               style={styles.headerButton}
-              hitSlop={HEADER_CLOSE_HIT_SLOP}
               accessibilityLabel={
-                startFullscreen ? "Back to linq" : "Back to file preview"
+                !contentFullscreen
+                  ? "Close file details"
+                  : startFullscreen
+                    ? "Back to linq"
+                    : !hostedInModal
+                      ? "Close file details"
+                      : "Back to file preview"
               }
-              accessibilityRole="button"
-            >
-              <FontAwesomeIcon icon={faChevronLeft} size={20} color="white" />
-            </TouchableOpacity>
-          ) : null}
-
-          <View className="flex-row items-center flex-1 mx-1" style={{ minWidth: 0 }}>
-            <View
-              className={`w-2.5 h-2.5 rounded-full ${getTypeColor(selectedFile.typeColor)} mr-2.5`}
-            />
-            <Text
-              className="text-white text-lg font-semibold"
-              numberOfLines={1}
-              style={{ flexShrink: 1 }}
-            >
-              {headerTitle}
-            </Text>
-          </View>
-
-          {!contentFullscreen ? (
-            <TouchableOpacity
-              onPress={onClose}
-              style={styles.headerButton}
-              hitSlop={HEADER_CLOSE_HIT_SLOP}
-              accessibilityLabel="Close file details"
               accessibilityRole="button"
             >
               <FontAwesomeIcon icon={faXmark} size={20} color="white" />
             </TouchableOpacity>
-          ) : null}
+          </View>
         </View>
 
         {/* Body */}
         <ScrollView
           style={contentFullscreen ? { flex: 1 } : undefined}
-          contentContainerStyle={styles.bodyContent}
+          contentContainerStyle={[
+            styles.bodyContent,
+            contentFullscreen
+              ? { flexGrow: 1, paddingBottom: insets.bottom + 16 }
+              : undefined,
+          ]}
         >
-          <View style={{ marginBottom: 14 }}>{metadataSection}</View>
+          <View style={{ marginBottom: 10 }}>{metadataSection}</View>
 
           {(isTextPreview || isMarkdownPreview) && !loadingText && (
-            <View className="mb-4">
+            <View className="mb-3">
               {textContent != null && String(textContent).trim() !== "" ? (
                 <TextFileViewer text={textContent} />
               ) : (
@@ -688,13 +826,13 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
           )}
 
           {offlineImageOrPdfBlocked ? (
-            <View className="mb-4">
+            <View className="mb-3">
               <OfflinePreviewNotice />
             </View>
           ) : null}
 
           {!offlineImageOrPdfBlocked && displayMediaUri ? (
-            <View className="mb-4">
+            <View className="mb-3">
               {isImagePreview &&
                 (imagePreviewStatus === "error" ? (
                   <PreviewFallbackBanner
@@ -740,51 +878,36 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                 needsAndroidPresignedPdf &&
                 androidPdfResolvedUri === null && (
                   <View
-                    className="mb-4"
+                    className="mb-3"
                     style={[styles.mediaFrame, { height: pdfPreviewHeight }]}
                   />
                 )}
 
               {isPdfPreview && Platform.OS === "android" && localUri && !isOnline && (
-                <View className="mb-4" style={styles.offlinePdfPanel}>
-                  <Text style={styles.offlinePdfText}>
-                    PDF is saved offline. Android opens local PDFs through a PDF app.
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => void handleOpenDocument()}
-                    style={styles.accentButton}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.accentButtonText}>Open in Files</Text>
-                  </TouchableOpacity>
+                <View className="mb-3">
+                  <OfflinePreviewNotice />
                 </View>
               )}
 
-              {/* PDF inline viewer (same behavior as BundleModal) */}
+              {/* PDF inline viewer — direct URI only (no Google viewer / no JS). */}
               {isPdfPreview && pdfUriForWebView && (() => {
-                const shouldUseGoogleViewer = /^https?:\/\//i.test(pdfUriForWebView);
-                const sourceUri = shouldUseGoogleViewer
-                  ? `https://drive.google.com/viewerng/viewer?embedded=true&url=${encodeURIComponent(
-                      pdfUriForWebView
-                    )}`
-                  : pdfUriForWebView;
+                const sourceUri = pdfUriForWebView;
                 return (
                 <View style={[styles.mediaFrame, { height: pdfPreviewHeight }]}>
                   <WebView
                     source={{ uri: sourceUri }}
-                    originWhitelist={["*"]}
+                    originWhitelist={pdfOriginWhitelist(sourceUri)}
                     onLoadStart={() => setPdfError(null)}
                     onError={(e) =>
                       setPdfError(
                         e?.nativeEvent?.description ?? "Failed to load PDF"
                       )
                     }
-                    javaScriptEnabled
-                    allowFileAccess
+                    javaScriptEnabled={false}
+                    allowFileAccess={false}
                     scalesPageToFit
                     {...(Platform.OS === "android"
-                      ? { mixedContentMode: "always" as const }
+                      ? { mixedContentMode: "never" as const }
                       : {})}
                   />
                   {pdfError ? (
@@ -792,17 +915,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                       <Text style={styles.previewErrorText}>
                         {previewFixingMessage(displayFileName)}
                       </Text>
-                      <TouchableOpacity
-                        onPress={() => void handleOpenDocument()}
-                        disabled={!canOpenDocument}
-                        style={[
-                          styles.primaryButton,
-                          { opacity: canOpenDocument ? 1 : 0.5 },
-                        ]}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Text style={styles.primaryButtonText}>Open in Files</Text>
-                      </TouchableOpacity>
                     </View>
                   ) : null}
                 </View>
@@ -815,19 +927,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                   <PreviewFallbackBanner
                     message={previewFixingMessage(displayFileName)}
                   />
-                  <TouchableOpacity
-                    onPress={() => void handleOpenDocument()}
-                    disabled={!canOpenDocument}
-                    style={[
-                      styles.accentButton,
-                      styles.centeredButton,
-                      { opacity: canOpenDocument ? 1 : 0.45 },
-                    ]}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.accentButtonText}>Open in Files</Text>
-                  </TouchableOpacity>
                 </View>
               )}
 
@@ -837,7 +936,6 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
                     onPress={handleAudioToggle}
                     disabled={isAudioLoading}
                     style={styles.audioButton}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     accessibilityRole="button"
                     accessibilityLabel={isAudioPlaying ? "Pause audio" : "Play audio"}
                   >
@@ -894,7 +992,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
             !(isTextPreview || isMarkdownPreview) &&
             (String(previewUrl ?? "").trim() ||
               String(selectedFile?.url ?? "").trim()) ? (
-            <View className="mb-4">
+            <View className="mb-3">
               <PreviewFallbackBanner
                 message={previewFixingMessage(displayFileName)}
               />
@@ -909,21 +1007,43 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
         onClose={() => setFullscreenImageUri(null)}
       />
     </View>
+  );
+
+  if (hostedInModal) {
+    return overlay;
+  }
+
+  return (
+    <Modal
+      visible={isVisible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+      supportedOrientations={["portrait", "landscape"]}
+    >
+      {overlay}
     </Modal>
   );
 };
 
 const styles = StyleSheet.create({
   headerButton: {
-    minWidth: 56,
-    minHeight: 56,
+    minWidth: 48,
+    minHeight: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  copyLinkButton: {
+    height: 48,
+    paddingHorizontal: 4,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
   bodyContent: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 24,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 16,
   },
   mediaFrame: {
     width: "100%",
@@ -948,7 +1068,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 8,
-    minHeight: 44,
+    minHeight: 48,
     justifyContent: "center",
   },
   primaryButtonText: {
@@ -960,7 +1080,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 18,
     borderRadius: 8,
-    minHeight: 44,
+    minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -974,18 +1094,19 @@ const styles = StyleSheet.create({
   },
   offlinePdfPanel: {
     width: "100%",
-    minHeight: 170,
-    borderRadius: 12,
+    minHeight: 130,
+    borderRadius: 10,
     backgroundColor: "#111827",
     alignItems: "center",
     justifyContent: "center",
-    padding: 18,
+    padding: 14,
   },
   offlinePdfText: {
     color: "#F9FAFB",
     textAlign: "center",
-    lineHeight: 21,
-    marginBottom: 14,
+    lineHeight: 19,
+    marginBottom: 10,
+    fontSize: 13,
   },
   audioBlock: {
     marginTop: 4,

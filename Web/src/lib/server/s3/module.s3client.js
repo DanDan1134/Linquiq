@@ -15,7 +15,7 @@ const s3Client = (() => {
             region: bucketRegion,
         });
     } catch (error) {
-        console.error("Error creating S3 client:", error);
+        console.error("Error creating S3 client:", error?.message ?? "unknown");
         throw error; // Rethrow the error to be handled by the calling code
     }
 })();

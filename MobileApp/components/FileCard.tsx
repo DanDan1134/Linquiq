@@ -24,7 +24,7 @@ import {
   Platform,
 } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import {
   faCheck,
   faMicrophone,
@@ -34,6 +34,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import "../global.css";
 import { getDisplayFileNameForUi, truncateNameForLog } from "../utils/helpers";
+import { logSafeWarn } from "../utils/safeLog";
 import { pickExtensionFromUri } from "../utils/fileHelpers";
 import {
   LIST_THUMB_CACHE_DIR,
@@ -47,10 +48,8 @@ import * as filesApi from "../api/files";
 /** Row height in px. FileList uses this for getItemLayout — keep them in sync. */
 export const FILE_CARD_HEIGHT = 72;
 
-const MAX_FILE_LIST_NAME_CHARS = 24;
-
-/** Extra room beyond the dedicated 52×52 checkbox touch box. */
-const CHECKBOX_HIT_SLOP = { top: 10, bottom: 10, left: 14, right: 0 } as const;
+/** Fixed width for the trailing type badge column so it lines up across every row. */
+const TYPE_BADGE_WIDTH = 50;
 
 type FileCardFile = {
   id: string;
@@ -71,6 +70,8 @@ interface FileCardProps {
   onPress: (file: FileCardFile) => void;
   onToggleSelection: (fileId: string) => void;
   getTypeColor: (color: string) => string;
+  /** Already in the target linq while add mode is active — no checkbox, dimmed row. */
+  selectionLocked?: boolean;
 }
 
 /** Type label shown on the right; linq rows read as "linq" regardless of source. */
@@ -86,6 +87,7 @@ const FileCardBase: React.FC<FileCardProps> = ({
   onPress,
   onToggleSelection,
   getTypeColor,
+  selectionLocked = false,
 }) => {
   const [diskThumbUri, setDiskThumbUri] = useState<string | undefined>(
     undefined,
@@ -166,7 +168,7 @@ const FileCardBase: React.FC<FileCardProps> = ({
   // have an https source before full download or list-thumb file exists.
   useEffect(() => {
     const id = String(file.id ?? "").trim();
-    if (!id || id.startsWith("opt-")) return;
+    if (!id || id.startsWith("opt-") || Number((file as any).dirty) === 1) return;
     if (String(file.local_uri ?? "").trim()) return;
     if (String(diskThumbUri ?? "").trim()) return;
     if (/^https?:\/\//i.test(String(file.url ?? "").trim())) return;
@@ -238,7 +240,7 @@ const FileCardBase: React.FC<FileCardProps> = ({
         }
       }
     } catch (e) {
-      console.warn(
+      logSafeWarn(
         `[FileCard] thumb cache download failed · ${truncateNameForLog(file.name, 6)}`,
         e,
       );
@@ -302,43 +304,41 @@ const FileCardBase: React.FC<FileCardProps> = ({
     file.type,
     file.contentType,
   );
-  const clippedDisplayName =
-    displayName.length > MAX_FILE_LIST_NAME_CHARS
-      ? displayName.slice(0, MAX_FILE_LIST_NAME_CHARS)
-      : displayName;
 
   const showPhotoThumb = isImage && Boolean(thumbUri) && !thumbFailed;
 
   return (
     <View
       className="bg-card-bg rounded-lg flex-row items-center"
-      style={styles.cardContainer}
+      style={[styles.cardContainer, selectionLocked ? styles.lockedCard : undefined]}
     >
-      <TouchableOpacity
-        onPress={handleToggle}
-        hitSlop={CHECKBOX_HIT_SLOP}
-        delayPressIn={0}
-        activeOpacity={0.6}
-        style={styles.checkboxTouchTarget}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: isSelected }}
-        accessibilityLabel={`Select ${displayName}`}
-      >
-        <View
-          className={`w-7 h-7 items-center justify-center ${
-            isSelected ? "bg-button-outline" : "border-2 border-white"
-          }`}
+      {selectionLocked ? (
+        <View style={styles.checkboxSpacer} />
+      ) : (
+        <TouchableOpacity
+          onPress={handleToggle}
+          delayPressIn={0}
+          activeOpacity={0.6}
+          style={styles.checkboxTouchTarget}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: isSelected }}
+          accessibilityLabel={`Select ${displayName}`}
         >
-          {isSelected && (
-            <FontAwesomeIcon icon={faCheck} size={15} color="black" />
-          )}
-        </View>
-      </TouchableOpacity>
+          <View
+            className={`w-7 h-7 items-center justify-center ${
+              isSelected ? "bg-button-outline" : "border-2 border-white"
+            }`}
+          >
+            {isSelected && (
+              <FontAwesomeIcon icon={faCheck} size={15} color="black" />
+            )}
+          </View>
+        </TouchableOpacity>
+      )}
 
       <TouchableOpacity
         onPress={handleCardPress}
         activeOpacity={0.7}
-        hitSlop={{ top: 4, bottom: 4, left: 0, right: 4 }}
         delayPressIn={0}
         style={styles.cardOpenTarget}
         accessibilityRole="button"
@@ -376,7 +376,8 @@ const FileCardBase: React.FC<FileCardProps> = ({
                 if (
                   !urlRefreshAttempted.current &&
                   idStr &&
-                  !idStr.startsWith("opt-")
+                  !idStr.startsWith("opt-") &&
+                  Number((file as any).dirty) !== 1
                 ) {
                   urlRefreshAttempted.current = true;
                   void filesApi
@@ -423,20 +424,32 @@ const FileCardBase: React.FC<FileCardProps> = ({
           </View>
         )}
 
-        <View className="flex-1">
-          <Text className="text-white text-base font-medium" numberOfLines={1}>
-            {clippedDisplayName}
+        <View className="flex-1" style={{ minWidth: 0 }}>
+          <Text
+            className="text-white text-base font-medium"
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {displayName}
           </Text>
           <Text className="text-gray-400 text-xs mt-0.5" numberOfLines={1}>
             {file.date}
           </Text>
         </View>
 
-        <View className="flex-row items-center ml-2">
+        {/* Fixed width so this column lines up across every row, regardless
+            of label length ("linq" vs "Recording") or the name's length —
+            the name above truncates with "…" right before this column.
+            Right-aligned so the label sits flush against the card's edge
+            instead of hugging the left of its own fixed-width slot. */}
+        <View
+          className="flex-row items-center ml-2 "
+          style={{ width: TYPE_BADGE_WIDTH }}
+        >
           <View
             className={`w-2 h-2 rounded-full ${getTypeColor(file.typeColor)} mr-2`}
           />
-          <Text className="text-gray-300 text-xs">
+          <Text className="text-gray-300 text-xs" numberOfLines={1}>
             {displayTypeLabel(file.type)}
           </Text>
         </View>
@@ -450,6 +463,7 @@ function areEqual(prev: FileCardProps, next: FileCardProps) {
   const b = next.file;
   return (
     prev.isSelected === next.isSelected &&
+    prev.selectionLocked === next.selectionLocked &&
     prev.onPress === next.onPress &&
     prev.onToggleSelection === next.onToggleSelection &&
     a.id === b.id &&
@@ -468,14 +482,21 @@ export const FileCard = memo(FileCardBase, areEqual);
 const styles = StyleSheet.create({
   cardContainer: {
     height: FILE_CARD_HEIGHT,
-    paddingLeft: 4,
-    paddingRight: 14,
+    paddingLeft: 2,
+    paddingRight: 2,
   },
   checkboxTouchTarget: {
     width: 52,
     height: FILE_CARD_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
+  },
+  checkboxSpacer: {
+    width: 52,
+    height: FILE_CARD_HEIGHT,
+  },
+  lockedCard: {
+    opacity: 0.42,
   },
   cardOpenTarget: {
     flex: 1,

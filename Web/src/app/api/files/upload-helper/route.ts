@@ -1,36 +1,70 @@
-import { auth } from "@clerk/nextjs/server";
 import crypto from "crypto";
 import { genPresignedUrl } from "@/lib/server/s3/module.genPresignedUrl";
+import { getAuthedUserId } from "@/lib/server/getAuthedUserId";
+import { logSafeError } from "@/lib/safeLog";
 import { NextRequest, NextResponse } from "next/server";
-import { isValidUploadCount, MAX_UPLOAD_COUNT } from "@/lib/server/uploadValidation";
+import {
+  isValidUploadCount,
+  MAX_UPLOAD_COUNT,
+  validateUploadMeta,
+  type UploadFileMeta,
+} from "@/lib/server/uploadValidation";
 
-export async function GET(request: NextRequest) {
-  const { userId } = await auth();
+/**
+ * Issue bounded S3 PUT URLs.
+ * Clients must POST file metadata so Content-Type and Content-Length are signed.
+ */
+export async function POST(request: NextRequest) {
+  const userId = await getAuthedUserId(request);
 
   if (!userId) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const params = request.nextUrl.searchParams;
-  const count = params.get("count");
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      { okay: false, error: "Bad request", message: "Invalid JSON body" },
+      { status: 400 }
+    );
+  }
 
-  if (!count || !isValidUploadCount(count)) {
+  const filesRaw = (body as { files?: unknown })?.files;
+  if (!Array.isArray(filesRaw) || !isValidUploadCount(filesRaw.length)) {
     return NextResponse.json(
       {
         okay: false,
         error: "Bad request",
-        message: `count must be an integer between 1 and ${MAX_UPLOAD_COUNT}`,
+        message: `files must be an array of length 1..${MAX_UPLOAD_COUNT}`,
       },
       { status: 400 }
     );
   }
 
-  const fileCount = parseInt(count, 10);
+  let metas: UploadFileMeta[];
+  try {
+    metas = filesRaw.map((row) => validateUploadMeta(row));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "INVALID_UPLOAD_META";
+    return NextResponse.json(
+      {
+        okay: false,
+        error: "Bad request",
+        message,
+      },
+      { status: 400 }
+    );
+  }
+
   const urls: string[] = [];
   const keys: string[] = [];
+  const contentTypes: string[] = [];
+  const contentLengths: number[] = [];
 
   try {
-    for (let i = 0; i < fileCount; i++) {
+    for (const meta of metas) {
       const key = crypto.randomBytes(16).toString("hex");
       urls.push(
         await genPresignedUrl({
@@ -38,22 +72,27 @@ export async function GET(request: NextRequest) {
           key,
           method: "PUT",
           expirationInSec: 300,
+          contentType: meta.contentType,
+          contentLength: meta.contentLength,
         })
       );
       keys.push(key);
+      contentTypes.push(meta.contentType);
+      contentLengths.push(meta.contentLength);
     }
 
     return NextResponse.json(
       {
         okay: true,
-        urls: urls,
-        keys: keys,
+        urls,
+        keys,
+        contentTypes,
+        contentLengths,
       },
       { status: 200 }
     );
   } catch (err) {
-    console.log("upload-helper failed to generate presigned URLs");
-    console.log(err);
+    logSafeError("upload-helper presign", err);
     return new Response(
       "Encountered an unknown condition. Either failed to generate presignedUrl or something far worse :(",
       { status: 500 }

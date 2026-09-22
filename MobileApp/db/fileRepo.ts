@@ -325,13 +325,14 @@ export async function markDownloadSkipped(id: string): Promise<void> {
 
 /**
  * Return server-synced files that still need their content / binary downloaded.
- * Excludes opt- rows (never synced), already-downloaded, skipped, and Linqs.
+ * Excludes pending local uploads, already-downloaded, skipped, and Linqs.
  */
 export async function getFilesNeedingDownload(): Promise<LocalFile[]> {
   const db = getDb();
   const rows = await db.getAllAsync<FileRow>(
     `SELECT * FROM files
       WHERE deleted = 0
+        AND dirty = 0
         AND (
           download_status = 'pending'
           OR download_status = 'failed'
@@ -345,24 +346,62 @@ export async function getFilesNeedingDownload(): Promise<LocalFile[]> {
 }
 
 /**
- * Map a client-side file id (opt-… or already-synced server id) to the current
- * server row id stored in SQLite. Returns null if the row is still local-only (id still opt-).
+ * Map a client-side file id (opt-…, pending UUID, or synced server id) to the current
+ * server row id stored in SQLite. Returns null if the row is still local-only.
  */
 export async function resolveSyncedFileId(
   clientOrServerId: string
 ): Promise<string | null> {
   const sid = String(clientOrServerId).trim();
   if (!sid) return null;
-  if (!sid.startsWith('opt-')) return sid;
 
   const db = getDb();
-  const row = await db.getFirstAsync<{ id: string }>(
-    'SELECT id FROM files WHERE client_id = ? OR id = ?',
-    [sid, sid]
-  );
-  if (!row?.id) return null;
-  if (String(row.id).startsWith('opt-')) return null;
-  return row.id;
+  const syncedId = (
+    row: { id: string; dirty: number; synced_at: number | null } | null
+  ): string | null => {
+    if (!row?.id) return null;
+    if (String(row.id).startsWith('opt-')) return null;
+    if (row.dirty === 1 && !row.synced_at) return null;
+    return row.id;
+  };
+
+  if (sid.startsWith('opt-')) {
+    const fileRow = await db.getFirstAsync<{
+      id: string;
+      dirty: number;
+      synced_at: number | null;
+    }>('SELECT id, dirty, synced_at FROM files WHERE client_id = ? OR id = ?', [
+      sid,
+      sid,
+    ]);
+    const fromFile = syncedId(fileRow);
+    if (fromFile) return fromFile;
+
+    const bundleRow = await db.getFirstAsync<{
+      id: string;
+      dirty: number;
+      synced_at: number | null;
+    }>('SELECT id, dirty, synced_at FROM bundles WHERE id = ?', [sid]);
+    return syncedId(bundleRow);
+  }
+
+  const fileRow = await db.getFirstAsync<{
+    id: string;
+    dirty: number;
+    synced_at: number | null;
+  }>('SELECT id, dirty, synced_at FROM files WHERE id = ?', [sid]);
+  if (fileRow) return syncedId(fileRow);
+
+  // Nested linqs live in `bundles`, not `files`. Returning an unsynced linq id
+  // made /files/connect 403 (not owned) instead of waiting for upload.
+  const bundleRow = await db.getFirstAsync<{
+    id: string;
+    dirty: number;
+    synced_at: number | null;
+  }>('SELECT id, dirty, synced_at FROM bundles WHERE id = ?', [sid]);
+  if (bundleRow) return syncedId(bundleRow);
+
+  return sid;
 }
 
 /** Resolve all child ids for create_bundle after uploads have assigned server ids. */
@@ -382,7 +421,17 @@ export async function resolveChildIdsForBundle(
 
 // ── Bundles ──────────────────────────────────────────────────────────────
 
-/** Return all non-deleted bundles from SQLite. */
+/** Return one bundle by id, or null. */
+export async function getBundleById(id: string): Promise<LocalBundle | null> {
+  const db = getDb();
+  const row = await db.getFirstAsync<BundleRow>(
+    'SELECT * FROM bundles WHERE id = ? AND deleted = 0',
+    [String(id)]
+  );
+  return row ? rowToBundle(row) : null;
+}
+
+/** Return all non-deleted bundles (linqs) from SQLite. */
 export async function getAllBundles(): Promise<LocalBundle[]> {
   const db = getDb();
   const t = track('READ LINQS');
@@ -456,6 +505,12 @@ export async function upsertBundle(
 export async function markBundleDirty(id: string): Promise<void> {
   const db = getDb();
   await db.runAsync('UPDATE bundles SET dirty = 1 WHERE id = ?', [id]);
+}
+
+/** Update only file name (local rename before/after sync). */
+export async function updateFileName(id: string, name: string): Promise<void> {
+  const db = getDb();
+  await db.runAsync('UPDATE files SET name = ? WHERE id = ?', [name, id]);
 }
 
 /** Update only bundle name (used for mobile-only Linq title backfill). */

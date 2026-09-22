@@ -11,7 +11,7 @@ import {
   Platform,
   StyleSheet,
 } from "react-native";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import {
   faGear,
   faMagnifyingGlass,
@@ -87,6 +87,8 @@ interface HeaderProps {
   isDeletingFiles?: boolean;
   /** Current sync state — drives the sync icon appearance */
   syncStatus?: SyncStatus;
+  /** Background cache progress while status is `caching`. */
+  downloadProgress?: { done: number; total: number } | null;
   /** True when there are unsynced local changes queued in outbox. */
   hasPendingLocalChanges?: boolean;
   /** Called when user taps the sync icon */
@@ -106,6 +108,7 @@ export const Header: React.FC<HeaderProps> = ({
   onDeleteSelected,
   isDeletingFiles = false,
   syncStatus = "idle",
+  downloadProgress = null,
   hasPendingLocalChanges = false,
   onSyncPress,
 }) => {
@@ -117,12 +120,14 @@ export const Header: React.FC<HeaderProps> = ({
     setAvatarLoadFailed(false);
   }, [avatarUrl]);
 
-  // Spin animation for the sync icon when syncing
+  const isSyncBusy = syncStatus === "syncing" || syncStatus === "caching";
+
+  // Spin animation for the sync icon when syncing or caching
   const spinValue = useRef(new Animated.Value(0)).current;
   const spinAnimation = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
-    if (syncStatus === "syncing") {
+    if (isSyncBusy) {
       spinValue.setValue(0);
       spinAnimation.current = Animated.loop(
         Animated.timing(spinValue, {
@@ -138,7 +143,7 @@ export const Header: React.FC<HeaderProps> = ({
       spinAnimation.current = null;
       spinValue.setValue(0);
     }
-  }, [syncStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isSyncBusy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const spinDeg = spinValue.interpolate({
     inputRange: [0, 1],
@@ -150,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
       ? "#ef4444"
       : syncStatus === "offline"
         ? "#94a3b8"
-        : syncStatus === "syncing"
+        : isSyncBusy
           ? "#D7827E"
           : hasPendingLocalChanges
             ? "#f59e0b"
@@ -161,22 +166,33 @@ export const Header: React.FC<HeaderProps> = ({
       ? faCircleExclamation
       : syncStatus === "offline"
         ? faClock
-        : syncStatus === "syncing"
+        : isSyncBusy
           ? faArrowsRotate
           : hasPendingLocalChanges
             ? faClock
             : faCircleCheck;
 
+  const cacheLabel =
+    syncStatus === "caching" &&
+    downloadProgress &&
+    downloadProgress.total > 0
+      ? `Saving ${Math.min(downloadProgress.done, downloadProgress.total)} of ${downloadProgress.total}…`
+      : syncStatus === "caching"
+        ? "Saving files…"
+        : null;
+
   const syncLabel =
     syncStatus === "syncing"
-      ? "Syncing…"
-      : syncStatus === "error"
-        ? "Couldn't sync"
-        : syncStatus === "offline"
-          ? "Offline"
-          : hasPendingLocalChanges
-            ? "Pending sync"
-            : "Synced";
+      ? "Syncing..."
+      : cacheLabel
+        ? cacheLabel
+        : syncStatus === "error"
+          ? "Couldn't sync"
+          : syncStatus === "offline"
+            ? "Offline"
+            : hasPendingLocalChanges
+              ? "Pending sync"
+              : "Synced";
 
   // Search row visible immediately (avoid opacity-0 flash if native driver anim fails)
   const searchRowOpacity = useRef(new Animated.Value(1)).current;
@@ -222,18 +238,19 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Sync status: icon + soft label (only icon spins while syncing) */}
           <TouchableOpacity
             onPress={onSyncPress}
-            hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
             delayPressIn={0}
             accessibilityLabel={
               syncStatus === "syncing"
-                ? "Syncing…"
-                : syncStatus === "error"
-                  ? "Sync error — tap to retry"
-                  : syncStatus === "offline"
-                    ? "Offline — showing cached content"
-                    : hasPendingLocalChanges
-                      ? "Pending local changes — tap to sync now"
-                      : "Synced — tap to sync now"
+                ? "Syncing..."
+                : syncStatus === "caching"
+                  ? cacheLabel ?? "Saving files…"
+                  : syncStatus === "error"
+                    ? "Sync error — tap to retry"
+                    : syncStatus === "offline"
+                      ? "Offline — showing cached content"
+                      : hasPendingLocalChanges
+                        ? "Pending local changes — tap to sync now"
+                        : "Synced — tap to sync now"
             }
             style={{
               minHeight: 48,
@@ -243,7 +260,7 @@ export const Header: React.FC<HeaderProps> = ({
               gap: 6,
             }}
           >
-            {syncStatus === "syncing" ? (
+            {isSyncBusy ? (
               <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
                 <FontAwesomeIcon
                   icon={syncIcon}
@@ -274,7 +291,6 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Settings / avatar button */}
           <TouchableOpacity
             onPress={onSettingsPress}
-            hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
             delayPressIn={0}
             accessibilityLabel="Open settings"
             className="w-12 h-12 items-center justify-center"
@@ -318,7 +334,6 @@ export const Header: React.FC<HeaderProps> = ({
             className="bg-button-outline rounded-lg flex-row items-center justify-center px-3"
             style={[styles.linqButtonWrap, { height: HEADER_CONTROL_HEIGHT }]}
             onPress={onLinkPress}
-            hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
             delayPressIn={0}
             accessibilityRole="button"
             accessibilityLabel="Create linq"
@@ -362,9 +377,8 @@ export const Header: React.FC<HeaderProps> = ({
               {searchQuery.length > 0 ? (
                 <TouchableOpacity
                   onPress={() => onSearchChange("")}
-                  className="w-10 h-12 rounded-full items-center justify-center"
+                  className="w-12 h-12 rounded-full items-center justify-center"
                   accessibilityLabel="Clear search"
-                  hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
                   delayPressIn={0}
                 >
                   <FontAwesomeIcon icon={faXmark} size={12} color="#D7827E" />
@@ -373,7 +387,6 @@ export const Header: React.FC<HeaderProps> = ({
               <TouchableOpacity
                 onPress={onFilterPress}
                 className="w-12 h-12 rounded-full items-center justify-center"
-                hitSlop={{ top: 8, bottom: 8, left: 4, right: 8 }}
                 delayPressIn={0}
                 accessibilityRole="button"
                 accessibilityLabel={
@@ -441,7 +454,6 @@ export const Header: React.FC<HeaderProps> = ({
                     height: HEADER_CONTROL_HEIGHT,
                   }}
                   accessibilityLabel={`Delete ${selectedFileCount} selected file(s)`}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   delayPressIn={0}
                 >
                   {isDeletingFiles ? (

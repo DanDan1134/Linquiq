@@ -1,8 +1,11 @@
 /**
  * Shared pressable with a reliable hit area.
  *
- * Prefer a real minWidth/minHeight over huge hitSlop — large overlapping
- * hitSlops between neighbors make taps intermittently miss.
+ * Real minWidth/minHeight only — no hitSlop. hitSlop extends the tappable
+ * area beyond what's drawn, so neighboring buttons' slop zones can overlap
+ * and steal each other's taps, or a native touch-handler bug (RN Modal
+ * stacking on iOS) can leave a stale slop rect that no longer lines up with
+ * the visible button. A real 52×52+ box has none of those failure modes.
  *
  * Uses RN Pressable (not gesture-handler TouchableOpacity) so flex/NativeWind
  * children layout correctly (dates, labels, icons stay visible).
@@ -16,14 +19,6 @@ import {
 } from "react-native";
 import { MIN_TOUCH_SIZE } from "../utils/helpers";
 
-/** Modest slop only; keep adjacent buttons from fighting over the same pixels. */
-export const SAFE_HIT_SLOP = {
-  top: 10,
-  bottom: 10,
-  left: 10,
-  right: 10,
-} as const;
-
 type AppPressableProps = PressableProps & {
   /** Extra style applied on top of the default min touch box. */
   style?: StyleProp<ViewStyle>;
@@ -33,15 +28,12 @@ type AppPressableProps = PressableProps & {
 
 export function AppPressable({
   style,
-  hitSlop,
   fillParent = false,
   children,
   ...rest
 }: AppPressableProps) {
   return (
     <Pressable
-      hitSlop={hitSlop ?? SAFE_HIT_SLOP}
-      pressRetentionOffset={SAFE_HIT_SLOP}
       style={({ pressed }) => [
         fillParent
           ? undefined

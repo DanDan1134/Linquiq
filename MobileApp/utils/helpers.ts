@@ -7,6 +7,42 @@
  */
 import { categoryFromExt } from "./fileHelpers";
 import { API_BASE } from "../api/client";
+import * as Crypto from "expo-crypto";
+import { logSafeWarn } from "./safeLog";
+
+/** Default stored/display name when the user leaves a linq unnamed. */
+export const DEFAULT_LINQ_NAME = "linq";
+
+/** Placeholder linq titles that should collapse to {@link DEFAULT_LINQ_NAME}. */
+export function isGenericLinqName(name: unknown): boolean {
+  const n = String(name ?? "").trim().toLowerCase();
+  return (
+    !n ||
+    n === "linq" ||
+    n === "link" ||
+    n === "bundle" ||
+    n === "untitled linq"
+  );
+}
+
+/** Legacy auto titles like "3 items · pdf, note" — no longer used for new linqs. */
+export function looksLikeAutoDerivedLinqTitle(name: unknown): boolean {
+  const n = String(name ?? "").trim();
+  return /^\d+\s+items?\s*(·|$)/i.test(n);
+}
+
+/** Stored + displayed linq title: user name, else {@link DEFAULT_LINQ_NAME}. */
+export function resolveLinqDisplayName(name: unknown): string {
+  const trimmed = String(name ?? "").trim().slice(0, 80);
+  if (
+    !trimmed ||
+    isGenericLinqName(trimmed) ||
+    looksLikeAutoDerivedLinqTitle(trimmed)
+  ) {
+    return DEFAULT_LINQ_NAME;
+  }
+  return trimmed;
+}
 
 /** Shown when offline with no on-device copy for image/PDF inline preview (iOS + Android). */
 export const OFFLINE_PREVIEW_MESSAGE = "Can't view in offline mode";
@@ -26,27 +62,76 @@ export function isOfflineImageOrPdfPreviewBlocked(
   return isImagePreview || isPdfPreview;
 }
 
-/** Shareable preview URL — only for server UUIDs (openable / copyable). */
-export function getFilePreviewUrl(fileId?: string | null): string {
-  const id = String(fileId ?? "").trim();
-  if (!id || id.startsWith("opt-")) return "";
-  return `${API_BASE}/preview/${id}`;
+/** Postgres / shareable entry id shape (UUID). */
+const SHAREABLE_ENTRY_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** New offline file id — same UUID the server will store, so preview URL matches. */
+export function newLocalFileId(): string {
+  return Crypto.randomUUID();
 }
 
-/** True when the preview link can be opened in a browser (server UUID). */
-export function isFilePreviewUrlLive(fileId?: string | null): boolean {
-  const id = String(fileId ?? "").trim();
-  return Boolean(id && !id.startsWith("opt-"));
+/** True when id can be used in `/preview/{id}` (real UUID, not legacy `opt-…`). */
+export function isShareableEntryId(fileId?: string | null): boolean {
+  return SHAREABLE_ENTRY_ID_RE.test(String(fileId ?? "").trim());
+}
+
+/** Legacy offline placeholder ids (`opt-…`, `opt-linq-…`). */
+export function isLegacyOptId(fileId?: string | null): boolean {
+  return String(fileId ?? "").startsWith("opt-");
 }
 
 /**
- * Always builds `https://…/preview/{id}` when an id exists (including pending opt- ids).
- * Used in file / linq details instead of a "link will show when served" placeholder.
+ * Shareable preview URL. Same string offline and online once the id is a UUID.
+ * Empty for legacy `opt-` placeholders (no stable server id yet).
+ */
+export function getFilePreviewUrl(fileId?: string | null): string {
+  const id = String(fileId ?? "").trim();
+  if (!isShareableEntryId(id)) return "";
+  return `${API_BASE}/preview/${id}`;
+}
+
+/**
+ * True when a URI is the website HTML preview page (`/preview/{id}`), not binary media.
+ * RN Image / PDF WebView cannot render that Clerk-auth page.
+ */
+export function isSitePreviewUrl(uri?: string | null): boolean {
+  const u = String(uri ?? "").trim();
+  if (!u) return false;
+  try {
+    const path = u.split("?")[0].toLowerCase();
+    return /\/preview\/[^/]+\/?$/.test(path);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Clickable only when the entry is synced and the device is online.
+ * Pending uploads still show the URL as plain text via getFilePreviewUrlLabel.
+ */
+export function isFilePreviewUrlLive(
+  fileId?: string | null,
+  opts?: {
+    /** Pending local upload (dirty / not yet verified). */
+    pending?: boolean;
+    dirty?: number | boolean;
+    isOnline?: boolean;
+  }
+): boolean {
+  if (!isShareableEntryId(fileId)) return false;
+  if (opts?.pending === true) return false;
+  if (opts?.dirty === 1 || opts?.dirty === true) return false;
+  if (opts?.isOnline === false) return false;
+  return true;
+}
+
+/**
+ * Shareable preview URL for display/copy. Same as getFilePreviewUrl — only real
+ * UUIDs, never legacy `opt-…` placeholders.
  */
 export function getFilePreviewUrlLabel(fileId?: string | null): string {
-  const id = String(fileId ?? "").trim();
-  if (!id) return "";
-  return `${API_BASE}/preview/${id}`;
+  return getFilePreviewUrl(fileId);
 }
 /**
  * Maps file type color strings to Tailwind CSS color classes
@@ -87,53 +172,19 @@ export const getTypeColor = (color: string) => {
   }
 };
 
-/** Horizontal gap after Copy / before Expand (keeps touch slops from overlapping). */
+/** Horizontal gap after Copy / before Expand (keeps adjacent buttons' real boxes apart). */
 export const HEADER_ACTION_SEPARATOR = 14;
 
 /** Extra gap between fullscreen/expand and the close (×) control. */
 export const HEADER_EXPAND_TO_CLOSE_GAP = 20;
 
-/** Apple HIG / Material minimum comfortable touch target. */
+/**
+ * Apple HIG / Material minimum comfortable touch target (44pt iOS / 48dp Android).
+ * Buttons should meet this with their real drawn size — no hitSlop. hitSlop can
+ * overlap a neighbor's slop zone, or go stale after RN's Modal-stacking touch bug,
+ * both of which make taps miss or land on the wrong control.
+ */
 export const MIN_TOUCH_SIZE = 52;
-
-/** Square box that guarantees a 52×52 tap area around a small icon. */
-export const TOUCH_TARGET_BOX = {
-  minWidth: MIN_TOUCH_SIZE,
-  minHeight: MIN_TOUCH_SIZE,
-  alignItems: "center",
-  justifyContent: "center",
-} as const;
-
-/**
- * Modest slop for icon buttons that already use MIN_TOUCH_SIZE.
- * Keep this small so neighboring controls do not overlap (overlapping
- * hit areas cause intermittent missed / stolen taps on both platforms).
- */
-export const ICON_HIT_SLOP = {
-  top: 10,
-  bottom: 10,
-  left: 10,
-  right: 10,
-} as const;
-
-/** Hit slop for expand / bundle-shell fullscreen icon chips. */
-export const HEADER_ACTION_HIT_SLOP = {
-  top: 12,
-  bottom: 12,
-  left: 8,
-  right: 8,
-} as const;
-
-/**
- * Close (×) controls. Rely on a large min touch box + light slop —
- * not a huge radius that collides with the button next to it.
- */
-export const HEADER_CLOSE_HIT_SLOP = {
-  top: 12,
-  bottom: 12,
-  left: 12,
-  right: 12,
-} as const;
 
 const COPY_SUCCESS_FEEDBACK_MS = 2000;
 
@@ -148,7 +199,7 @@ export const copyToClipboard = (
     setCopyPressed(true);
     setTimeout(() => setCopyPressed(false), COPY_SUCCESS_FEEDBACK_MS);
   } catch (err) {
-    console.error("Failed to copy to clipboard:", err);
+    logSafeWarn("Failed to copy to clipboard", err);
     setCopyPressed(false);
   }
 };
@@ -331,9 +382,11 @@ export function getDisplayFileNameForUi(
   type?: string | null,
   contentType?: string | null
 ): string {
+  const t = String(type ?? "").toLowerCase();
+  if (t === "link" || t === "bundle" || t === "linq") {
+    return resolveLinqDisplayName(name);
+  }
   const n = String(name ?? "");
-  if (n === "Bundle" || n === "bundle" || n === "Linq" || n.toLowerCase() === "linq")
-    return "linq";
   if (isLikelyNoteFile(n, type, contentType)) {
     const stripped = n.replace(/\.(txt|md|text)$/i, "").trim();
     return stripped || n;
@@ -342,14 +395,18 @@ export function getDisplayFileNameForUi(
 }
 
 /**
- * Auto title for Linqs using child file types.
- * Example: "linq | note, pdf, image +4"
+ * Auto title for Linqs using child file count (+ types for small Linqs).
+ * The type badge/icon shown next to the name already marks it as a Linq,
+ * so the title itself doesn't repeat "linq" — just the useful part.
+ * Examples: "1 item · note", "3 items · image, pdf", "6 items"
  */
 export function deriveLinqTitleFromFiles(
   files: Array<{ name?: string | null; type?: string | null; contentType?: string | null }> | null | undefined
 ): string {
-  const MAX_LINQ_TITLE_CHARS = 22;
-  const LINQ_PREFIX = "linq | ";
+  const MAX_LINQ_TITLE_CHARS = 34;
+  // Above this many children, a type list would need a "+N" tail anyway —
+  // simpler and neater to just show the count.
+  const MAX_TYPES_SHOWN = 3;
   const list = Array.isArray(files) ? files : [];
   const labels = list
     .map((f) => {
@@ -367,37 +424,25 @@ export function deriveLinqTitleFromFiles(
     .map((s) => String(s).trim())
     .filter(Boolean);
 
-  if (!labels.length) return "linq";
-  const uniqueLabels: string[] = [];
-  for (const label of labels) {
-    if (!uniqueLabels.includes(label)) uniqueLabels.push(label);
-  }
+  const total = labels.length;
+  if (!total) return "linq";
 
-  let best = "linq";
-  const maxShown = Math.min(uniqueLabels.length, labels.length);
-  for (let shownCount = maxShown; shownCount >= 1; shownCount -= 1) {
-    const shownLabels = uniqueLabels.slice(0, shownCount);
-    const head = shownLabels.join(", ");
-    // Hidden count is based on total child count so repeated nested types still affect +N.
-    const remaining = Math.max(0, labels.length - shownCount);
-    const candidate =
-      remaining > 0
-        ? `${LINQ_PREFIX}${head} +${remaining}`
-        : `${LINQ_PREFIX}${head}`;
-    if (candidate.length <= MAX_LINQ_TITLE_CHARS) {
-      best = candidate;
-      break;
+  const countLabel = `${total} item${total === 1 ? "" : "s"}`;
+
+  if (total <= MAX_TYPES_SHOWN) {
+    const uniqueLabels: string[] = [];
+    for (const label of labels) {
+      if (!uniqueLabels.includes(label)) uniqueLabels.push(label);
+    }
+    // Graceful fallback: if the full unique-type list doesn't fit, drop
+    // labels from the end one at a time rather than dropping the whole list.
+    for (let shown = uniqueLabels.length; shown >= 1; shown -= 1) {
+      const withTypes = `${countLabel} · ${uniqueLabels.slice(0, shown).join(", ")}`;
+      if (withTypes.length <= MAX_LINQ_TITLE_CHARS) return withTypes;
     }
   }
 
-  if (best === "linq") {
-    const fallback = `${LINQ_PREFIX}+${labels.length}`;
-    return fallback.length <= MAX_LINQ_TITLE_CHARS
-      ? fallback
-      : fallback.slice(0, MAX_LINQ_TITLE_CHARS);
-  }
-
-  return best;
+  return countLabel;
 }
 
 /** Shorten names in console output (default: first 6 chars + ellipsis). */
@@ -415,4 +460,30 @@ export function truncateNameForLog(
 export function previewFixingMessage(fileLabel: string): string {
   const label = String(fileLabel ?? "").trim() || "this file";
   return `Cant preview "${label}" at the moment, currently fixing this! :)`;
+}
+
+/** Keep user-edited child row fields (e.g. rename) when background hydration refreshes URLs. */
+export function mergePreservedChildFileRows(
+  incoming: any[] | undefined,
+  previous: any[] | undefined,
+  fields: Array<"name"> = ["name"]
+): any[] {
+  if (!Array.isArray(incoming)) return [];
+  if (!Array.isArray(previous) || previous.length === 0) return incoming;
+  const prevById = new Map(
+    previous.map((f) => [String(f?.id ?? ""), f]).filter(([id]) => id)
+  );
+  return incoming.map((row) => {
+    const prev = prevById.get(String(row?.id ?? ""));
+    if (!prev) return row;
+    let out = row;
+    for (const field of fields) {
+      const nextVal = prev[field];
+      if (nextVal != null && nextVal !== row[field]) {
+        if (out === row) out = { ...row };
+        out[field] = nextVal;
+      }
+    }
+    return out;
+  });
 }

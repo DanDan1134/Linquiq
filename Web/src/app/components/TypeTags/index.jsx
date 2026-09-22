@@ -2,14 +2,17 @@
 import "./Tag.css";
 import { getFileType } from "@/lib/client/getFileType";
 
-export const Bundle = ({ layout = true, scaling=false }) => {
+export const Linq = ({ layout = true, scaling=false }) => {
     return (
-        <div className={`tag bundle${!layout ? " small" : ""}${!scaling ? " scaling" : ""}`}>
+        <div className={`tag linq${!layout ? " small" : ""}${!scaling ? " scaling" : ""}`}>
             <div className="marker" />
             <div className={`text ${layout ? `${!scaling ? "scaling" : ""}` : "small"}`}>linq</div>
         </div>
     );
 };
+
+/** @deprecated Use Linq */
+export const Bundle = Linq;
 
 export const Document = ({ layout = true, scaling=false }) => {
     return (
@@ -50,8 +53,8 @@ export const Img = ({ layout = true, scaling=false }) => {
 export const FileType = (filename, layout = true, scaling = false) => {
     const fileType = getFileType(filename);
     switch (fileType) {
-        case "Bundle":
-            return <Bundle layout={layout} scaling={scaling} />;
+        case "Linq":
+            return <Linq layout={layout} scaling={scaling} />;
         case "Document":
             return <Document layout={layout} scaling={scaling} />;
         case "Image":

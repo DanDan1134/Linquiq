@@ -12,9 +12,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TouchableOpacity, Alert, StyleSheet, Modal } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import { FontAwesomeIcon } from "./AppIcon";
 import { faXmark, faCamera, faRotate } from "@fortawesome/free-solid-svg-icons";
 import { track } from "../utils/perfLog";
+import { logSafeWarn } from "../utils/safeLog";
 import "../global.css";
 
 interface CameraModalProps {
@@ -22,9 +23,6 @@ interface CameraModalProps {
   onClose: () => void;
   onPhotoTaken: (photoUri: string) => void;
 }
-
-/** Light slop around the already-large control boxes. */
-const CONTROL_HIT_SLOP = { top: 12, bottom: 12, left: 12, right: 12 } as const;
 
 export const CameraModal: React.FC<CameraModalProps> = ({
   isVisible,
@@ -40,7 +38,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   useEffect(() => {
     if (isVisible && permission && !permission.granted && permission.canAskAgain) {
       requestPermission().catch((e) =>
-        console.warn("[camera] permission request failed", e)
+        logSafeWarn("[camera] permission request failed", e)
       );
     }
   }, [isVisible, permission, requestPermission]);
@@ -74,105 +72,102 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   const switchCamera = () =>
     setFacing((current) => (current === "back" ? "front" : "back"));
 
-  if (!isVisible || !permission) return null;
-
-  if (!permission.granted) {
-    return (
-      <Modal
-        visible
-        animationType="none"
-        onRequestClose={onClose}
-        statusBarTranslucent
-      >
+  let body: React.ReactNode = <View className="flex-1 bg-black" />;
+  if (isVisible) {
+    if (!permission || !permission.granted) {
+      body = (
         <View className="flex-1 bg-black items-center justify-center px-6">
           <Text className="text-white text-lg text-center mb-4">
             We need your permission to show the camera
           </Text>
-          <TouchableOpacity
-            onPress={requestPermission}
-            className="bg-button-outline rounded-md py-3 px-6"
-            hitSlop={CONTROL_HIT_SLOP}
-            delayPressIn={0}
-            accessibilityRole="button"
-          >
-            <Text className="text-black font-semibold">Grant Permission</Text>
-          </TouchableOpacity>
+          {permission ? (
+            <TouchableOpacity
+              onPress={requestPermission}
+              className="bg-button-outline rounded-md py-3 px-6"
+              style={{ minHeight: 48, justifyContent: "center" }}
+              delayPressIn={0}
+              accessibilityRole="button"
+            >
+              <Text className="text-black font-semibold">Grant Permission</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             onPress={onClose}
             style={styles.cancelButton}
-            hitSlop={CONTROL_HIT_SLOP}
             delayPressIn={0}
             accessibilityRole="button"
           >
             <Text className="text-gray-400">Cancel</Text>
           </TouchableOpacity>
         </View>
-      </Modal>
-    );
+      );
+    } else {
+      body = (
+        <View className="flex-1 bg-black">
+          <CameraView
+            ref={cameraRef}
+            style={{ flex: 1 }}
+            facing={facing}
+            onCameraReady={() => setIsReady(true)}
+          >
+            <View className="absolute top-12 left-0 right-0 flex-row justify-between items-center px-6">
+              <TouchableOpacity
+                onPress={onClose}
+                style={styles.iconButton}
+                delayPressIn={0}
+                accessibilityRole="button"
+                accessibilityLabel="Close camera"
+              >
+                <FontAwesomeIcon icon={faXmark} size={20} color="white" />
+              </TouchableOpacity>
+
+              <Text className="text-white text-lg font-semibold">Camera</Text>
+
+              <TouchableOpacity
+                onPress={switchCamera}
+                style={styles.iconButton}
+                delayPressIn={0}
+                accessibilityRole="button"
+                accessibilityLabel="Switch camera"
+              >
+                <FontAwesomeIcon icon={faRotate} size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+
+            <View className="absolute bottom-12 left-0 right-0 items-center">
+              <TouchableOpacity
+                onPress={takePicture}
+                disabled={!isReady || isCapturing}
+                className={`w-20 h-20 rounded-full border-4 border-white items-center justify-center ${
+                  isReady ? "bg-white" : "bg-gray-400"
+                }`}
+                style={isCapturing ? styles.captureBusy : undefined}
+                delayPressIn={0}
+                accessibilityRole="button"
+                accessibilityLabel="Take a photo"
+              >
+                <FontAwesomeIcon
+                  icon={faCamera}
+                  size={30}
+                  color={isReady ? "black" : "white"}
+                />
+              </TouchableOpacity>
+            </View>
+          </CameraView>
+        </View>
+      );
+    }
   }
 
   return (
     <Modal
-      visible
-      animationType="none"
+      visible={isVisible}
+      animationType="slide"
+      presentationStyle="fullScreen"
       onRequestClose={onClose}
-      statusBarTranslucent
+      supportedOrientations={["portrait", "landscape"]}
     >
-      <View className="flex-1 bg-black">
-        <CameraView
-          ref={cameraRef}
-          style={{ flex: 1 }}
-          facing={facing}
-          onCameraReady={() => setIsReady(true)}
-        >
-          <View className="absolute top-12 left-0 right-0 flex-row justify-between items-center px-6">
-            <TouchableOpacity
-              onPress={onClose}
-              style={styles.iconButton}
-              hitSlop={CONTROL_HIT_SLOP}
-              delayPressIn={0}
-              accessibilityRole="button"
-              accessibilityLabel="Close camera"
-            >
-              <FontAwesomeIcon icon={faXmark} size={20} color="white" />
-            </TouchableOpacity>
-
-            <Text className="text-white text-lg font-semibold">Camera</Text>
-
-            <TouchableOpacity
-              onPress={switchCamera}
-              style={styles.iconButton}
-              hitSlop={CONTROL_HIT_SLOP}
-              delayPressIn={0}
-              accessibilityRole="button"
-              accessibilityLabel="Switch camera"
-            >
-              <FontAwesomeIcon icon={faRotate} size={20} color="white" />
-            </TouchableOpacity>
-          </View>
-
-          <View className="absolute bottom-12 left-0 right-0 items-center">
-            <TouchableOpacity
-              onPress={takePicture}
-              disabled={!isReady || isCapturing}
-              className={`w-20 h-20 rounded-full border-4 border-white items-center justify-center ${
-                isReady ? "bg-white" : "bg-gray-400"
-              }`}
-              style={isCapturing ? styles.captureBusy : undefined}
-              hitSlop={CONTROL_HIT_SLOP}
-              delayPressIn={0}
-              accessibilityRole="button"
-              accessibilityLabel="Take a photo"
-            >
-              <FontAwesomeIcon
-                icon={faCamera}
-                size={30}
-                color={isReady ? "black" : "white"}
-              />
-            </TouchableOpacity>
-          </View>
-        </CameraView>
-      </View>
+      {body}
     </Modal>
   );
 };
@@ -191,7 +186,7 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     marginTop: 16,
-    minHeight: 44,
+    minHeight: 48,
     justifyContent: "center",
   },
 });
