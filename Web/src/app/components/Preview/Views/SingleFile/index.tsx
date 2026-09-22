@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { getFileType } from "@/lib/client/getFileType";
 import { sanitizeHtml } from "@/lib/client/sanitizeHtml";
 import { PrivateDocumentPreview } from "@/app/components/Preview/PrivateDocumentPreview";
+import { privateFileSrc } from "@/lib/client/privateFileSrc";
 
 const NoteView = ({ fileUrl }: { fileUrl: string }) => {
     const [fileSrc, setFileSrc] = useState<string | undefined>(undefined);
@@ -27,7 +28,6 @@ const NoteView = ({ fileUrl }: { fileUrl: string }) => {
 };
 
 export const SingleFilePreview = ({
-    fileUrl,
     fileType,
     fileId,
     fileName,
@@ -39,8 +39,10 @@ export const SingleFilePreview = ({
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const displayType = getFileType(fileType);
+    const privateSrc = privateFileSrc(fileId);
+    const mediaSrc = privateSrc;
 
-    if (!fileUrl && displayType !== "Document") {
+    if (!mediaSrc && displayType !== "Document") {
         return <div>File not found.</div>;
     }
 
@@ -51,13 +53,12 @@ export const SingleFilePreview = ({
                     fileId={fileId}
                     fileType={fileType}
                     fileName={fileName}
-                    downloadUrl={fileUrl}
                 />
             );
         case "Image":
             return (
                 <img
-                    src={fileUrl}
+                    src={mediaSrc}
                     alt=""
                     style={{
                         width: "100%",
@@ -70,7 +71,7 @@ export const SingleFilePreview = ({
         case "Recording":
             return (
                 <video
-                    src={fileUrl}
+                    src={mediaSrc}
                     ref={videoRef}
                     autoPlay
                     muted
@@ -84,7 +85,7 @@ export const SingleFilePreview = ({
                 />
             );
         case "Note":
-            return fileUrl ? <NoteView fileUrl={fileUrl} /> : <div>File not found.</div>;
+            return privateSrc ? <NoteView fileUrl={privateSrc} /> : <div>File not found.</div>;
         default:
             return <div>Unsupported preview type.</div>;
     }

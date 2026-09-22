@@ -1,5 +1,6 @@
 "use client"
 import { create } from 'zustand'
+import { idForLog, logSafeError } from '@/lib/safeLog'
 
 // Updated File type to match your Drizzle schema
 export type File = {
@@ -70,12 +71,50 @@ const toJpgName = (name: string): string => {
     return name.replace(/\.[^.]+$/, ".jpg");
 };
 
+const isStillImageFile = (file: globalThis.File): boolean => {
+    const type = String(file.type || "").toLowerCase();
+    if (type.startsWith("image/") && !type.includes("heic") && !type.includes("heif")) {
+        return true;
+    }
+    return /\.(jpe?g|png|webp|gif)$/i.test(file.name);
+};
+
+/** Re-encode still images in the browser so EXIF/GPS is not uploaded. */
+const stripImageExif = async (file: globalThis.File): Promise<globalThis.File> => {
+    if (!isStillImageFile(file) || typeof createImageBitmap !== "function") {
+        return file;
+    }
+    try {
+        const bitmap = await createImageBitmap(file);
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return file;
+        ctx.drawImage(bitmap, 0, 0);
+        const png = /\.png$/i.test(file.name) || file.type === "image/png";
+        const outType = png ? "image/png" : "image/jpeg";
+        const blob: Blob | null = await new Promise((resolve) =>
+            canvas.toBlob(resolve, outType, 0.92)
+        );
+        bitmap.close();
+        if (!blob) return file;
+        return new globalThis.File([blob], file.name, {
+            type: outType,
+            lastModified: file.lastModified,
+        });
+    } catch {
+        return file;
+    }
+};
+
 const convertHeicToJpeg = async (file: globalThis.File): Promise<UploadJob> => {
     if (!isHeicFile(file)) {
+        const stripped = await stripImageExif(file);
         return {
-            displayName: file.name,
-            uploadFile: file,
-            storedName: file.name,
+            displayName: stripped.name,
+            uploadFile: stripped,
+            storedName: stripped.name,
         };
     }
 
@@ -136,7 +175,6 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
             } else {
                 newSelectedFiles.delete(fileId);
             }
-            console.log(newSelectedFiles)
             return { selectedFiles: newSelectedFiles };
         });
     },
@@ -155,7 +193,6 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
 
     previewedFile : undefined,
     SetPreviewedFile : ( file ) => {
-        console.log(file)
         set({previewedFile : file})
     },
 
@@ -249,8 +286,6 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
 
                             const { data, message} = await fileVerResponse.json();
 
-                            console.log(data)
-
                              // Set success message based on response
                             if (message.includes("All files")) {
                                 SetError("✅ All files uploaded successfully!");
@@ -293,7 +328,7 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
            
 
         } catch (error) {
-            console.error("Upload error:", error);
+            logSafeError("upload", error);
             SetError(`❌ Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             SetLoading(false);
@@ -311,7 +346,7 @@ export const useFileStore = create<FileManagerState>()((set, get) => ({
             });
 
             if (!response.ok) {
-                console.error(`Failed to delete file with ID: ${fileId}`);
+                logSafeError(`delete file id${idForLog(fileId)}`);
             }
         }));
 

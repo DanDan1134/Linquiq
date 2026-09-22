@@ -18,6 +18,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import * as filesApi from '../api/files';
 import { logPerf } from '../utils/perfLog';
+import { logSafeWarn } from '../utils/safeLog';
 import { persistListThumbnailFromFile } from '../utils/listThumbCache';
 import {
   getFilesNeedingDownload,
@@ -258,7 +259,7 @@ export async function clearDownloadCache(): Promise<void> {
       await FileSystem.deleteAsync(LIST_THUMB_CACHE_DIR, { idempotent: true });
     }
   } catch (e) {
-    console.warn('[contentDownloader] clearDownloadCache failed:', e);
+    logSafeWarn('[contentDownloader] clearDownloadCache failed', e);
   }
 }
 

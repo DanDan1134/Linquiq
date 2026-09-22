@@ -4,6 +4,7 @@
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
+import { logSafeWarn } from './safeLog';
 
 export const LIST_THUMB_CACHE_DIR = `${FileSystem.documentDirectory}linquiq_thumb_cache/`;
 
@@ -131,7 +132,7 @@ export async function persistListThumbnailFromFile(
     await FileSystem.copyAsync({ from: result.uri, to: dest });
     noteCachedListThumb(id, dest);
   } catch (e) {
-    console.warn('[listThumbCache] persistListThumbnailFromFile failed', id.slice(0, 12), e);
+    logSafeWarn('[listThumbCache] persistListThumbnailFromFile failed', e);
   }
 }
 

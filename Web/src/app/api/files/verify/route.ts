@@ -6,10 +6,11 @@ import {
   HeadObjectCommand,
   S3ServiceException,
 } from "@aws-sdk/client-s3";
-import { auth } from "@clerk/nextjs/server";
+import { getAuthedUserId } from "@/lib/server/getAuthedUserId";
 import { db } from "@/db";
 import { createFile } from "@/lib/server/createFile";
 import type { FileData } from "@/lib/Types/Types";
+import { logSafeError, logSafeWarn } from "@/lib/safeLog";
 import {
   getFileExtension,
   isAllowedFileName,
@@ -21,6 +22,12 @@ import {
   MAX_UPLOAD_COUNT,
   SEARCH_EXTRACT_MAX_CHARS,
 } from "@/lib/server/uploadValidation";
+import { EntryIdConflictError } from "@/lib/server/entryIdConflict";
+import {
+  QuotaExceededError,
+  assertCanAddFiles,
+  quotaExceededResponse,
+} from "@/lib/server/userQuota";
 
 interface RequestBody {
   keys: string[];
@@ -56,7 +63,7 @@ const deleteObjectQuietly = async (profileId: string, key: string) => {
       })
     );
   } catch (err) {
-    console.warn("Failed to delete orphan S3 object", key, err);
+    logSafeWarn("verify delete orphan S3 object", err);
   }
 };
 
@@ -145,7 +152,7 @@ const headObjectMeta = async (
       return { ok: false, reason: "missing" };
     }
 
-    console.log("Couldn't check objects existence");
+    logSafeError("verify headObject", err);
     throw new Error("Couldn't check objects existence");
   }
 };
@@ -155,7 +162,7 @@ export async function POST(request: NextRequest) {
   let userIdForCleanup: string | null = null;
 
   try {
-    const { userId } = await auth();
+    const userId = await getAuthedUserId(request);
     userIdForCleanup = userId;
 
     if (!userId) {
@@ -186,6 +193,7 @@ export async function POST(request: NextRequest) {
 
     const result = await db.transaction(async () => {
       const sentFiles: FileData[] = [];
+      let acceptedBytes = 0;
 
       if (
         clientIds !== undefined &&
@@ -207,6 +215,7 @@ export async function POST(request: NextRequest) {
 
         const head = await headObjectMeta(userId, key, fileName);
         if (head.ok) {
+          acceptedBytes += head.contentLength;
           const clientId = parseClientId(clientIds?.[index]);
           const ext = getFileExtension(fileName);
           let description: string | undefined;
@@ -242,6 +251,14 @@ export async function POST(request: NextRequest) {
         throw new Error("FILES_NOT_FOUND");
       }
 
+      try {
+        await assertCanAddFiles(userId, sentFiles.length, acceptedBytes);
+      } catch (err) {
+        for (const file of sentFiles) {
+          if (file.file_id) orphanKeys.push(file.file_id);
+        }
+        throw err;
+      }
       const createdEntries = await createFile(sentFiles, userId);
 
       return {
@@ -274,6 +291,21 @@ export async function POST(request: NextRequest) {
     if (userIdForCleanup && orphanKeys.length > 0) {
       await Promise.all(
         orphanKeys.map((key) => deleteObjectQuietly(userIdForCleanup!, key))
+      );
+    }
+
+    if (err instanceof QuotaExceededError) {
+      return NextResponse.json(quotaExceededResponse(), { status: 429 });
+    }
+
+    if (err instanceof EntryIdConflictError) {
+      return NextResponse.json(
+        {
+          okay: false,
+          error: "Conflict",
+          message: "Entry id already exists",
+        },
+        { status: 409 }
       );
     }
 
@@ -341,7 +373,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log(err);
+    logSafeError("verify", err);
     return NextResponse.json(
       {
         okay: false,

@@ -11,13 +11,17 @@
 import { getDb } from './index';
 import type { OutboxRow } from './schema';
 
-export type OutboxOp = 'upload_file' | 'upload_blob' | 'delete' | 'create_bundle';
+export type OutboxOp = 'upload_file' | 'upload_blob' | 'delete' | 'create_bundle' | 'add_to_bundle' | 'remove_from_bundle' | 'rename_bundle' | 'rename_file';
 
 export type OutboxPayload =
   | { op: 'upload_file'; localId: string; fileUri: string; name: string }
   | { op: 'upload_blob'; localId: string; content: string; name: string }
   | { op: 'delete'; serverId: string }
-  | { op: 'create_bundle'; localBundleId: string; childLocalIds: string[] };
+  | { op: 'create_bundle'; localBundleId: string; childLocalIds: string[] }
+  | { op: 'add_to_bundle'; bundleId: string; childLocalIds: string[] }
+  | { op: 'remove_from_bundle'; bundleId: string; childLocalIds: string[] }
+  | { op: 'rename_bundle'; bundleId: string; name: string }
+  | { op: 'rename_file'; fileId: string; name: string };
 
 /** Add a job to the outbox. Returns the new row id. */
 export async function enqueue(payload: OutboxPayload): Promise<number> {
@@ -87,6 +91,20 @@ export async function cancelJobsForId(localId: string): Promise<void> {
         shouldCancel =
           p.localBundleId === localId || (p.childLocalIds ?? []).includes(localId);
         break;
+      case 'add_to_bundle':
+        shouldCancel =
+          p.bundleId === localId || (p.childLocalIds ?? []).includes(localId);
+        break;
+      case 'remove_from_bundle':
+        shouldCancel =
+          p.bundleId === localId || (p.childLocalIds ?? []).includes(localId);
+        break;
+      case 'rename_bundle':
+        shouldCancel = p.bundleId === localId;
+        break;
+      case 'rename_file':
+        shouldCancel = p.fileId === localId;
+        break;
       case 'delete':
         shouldCancel = p.serverId === localId;
         break;
@@ -128,6 +146,20 @@ export async function getOutboxReferencedIds(): Promise<{
       case 'create_bundle':
         bundleIds.add(String(p.localBundleId));
         for (const c of p.childLocalIds ?? []) fileIds.add(String(c));
+        break;
+      case 'add_to_bundle':
+        bundleIds.add(String(p.bundleId));
+        for (const c of p.childLocalIds ?? []) fileIds.add(String(c));
+        break;
+      case 'remove_from_bundle':
+        bundleIds.add(String(p.bundleId));
+        for (const c of p.childLocalIds ?? []) fileIds.add(String(c));
+        break;
+      case 'rename_bundle':
+        bundleIds.add(String(p.bundleId));
+        break;
+      case 'rename_file':
+        fileIds.add(String(p.fileId));
         break;
       default:
         break;

@@ -356,8 +356,17 @@ export async function resolveSyncedFileId(
   if (!sid) return null;
 
   const db = getDb();
+  const syncedId = (
+    row: { id: string; dirty: number; synced_at: number | null } | null
+  ): string | null => {
+    if (!row?.id) return null;
+    if (String(row.id).startsWith('opt-')) return null;
+    if (row.dirty === 1 && !row.synced_at) return null;
+    return row.id;
+  };
+
   if (sid.startsWith('opt-')) {
-    const row = await db.getFirstAsync<{
+    const fileRow = await db.getFirstAsync<{
       id: string;
       dirty: number;
       synced_at: number | null;
@@ -365,20 +374,34 @@ export async function resolveSyncedFileId(
       sid,
       sid,
     ]);
-    if (!row?.id) return null;
-    if (String(row.id).startsWith('opt-')) return null;
-    if (row.dirty === 1 && !row.synced_at) return null;
-    return row.id;
+    const fromFile = syncedId(fileRow);
+    if (fromFile) return fromFile;
+
+    const bundleRow = await db.getFirstAsync<{
+      id: string;
+      dirty: number;
+      synced_at: number | null;
+    }>('SELECT id, dirty, synced_at FROM bundles WHERE id = ?', [sid]);
+    return syncedId(bundleRow);
   }
 
-  const row = await db.getFirstAsync<{
+  const fileRow = await db.getFirstAsync<{
     id: string;
     dirty: number;
     synced_at: number | null;
   }>('SELECT id, dirty, synced_at FROM files WHERE id = ?', [sid]);
-  if (!row) return sid;
-  if (row.dirty === 1 && !row.synced_at) return null;
-  return row.id;
+  if (fileRow) return syncedId(fileRow);
+
+  // Nested linqs live in `bundles`, not `files`. Returning an unsynced linq id
+  // made /files/connect 403 (not owned) instead of waiting for upload.
+  const bundleRow = await db.getFirstAsync<{
+    id: string;
+    dirty: number;
+    synced_at: number | null;
+  }>('SELECT id, dirty, synced_at FROM bundles WHERE id = ?', [sid]);
+  if (bundleRow) return syncedId(bundleRow);
+
+  return sid;
 }
 
 /** Resolve all child ids for create_bundle after uploads have assigned server ids. */
@@ -398,7 +421,17 @@ export async function resolveChildIdsForBundle(
 
 // ── Bundles ──────────────────────────────────────────────────────────────
 
-/** Return all non-deleted bundles from SQLite. */
+/** Return one bundle by id, or null. */
+export async function getBundleById(id: string): Promise<LocalBundle | null> {
+  const db = getDb();
+  const row = await db.getFirstAsync<BundleRow>(
+    'SELECT * FROM bundles WHERE id = ? AND deleted = 0',
+    [String(id)]
+  );
+  return row ? rowToBundle(row) : null;
+}
+
+/** Return all non-deleted bundles (linqs) from SQLite. */
 export async function getAllBundles(): Promise<LocalBundle[]> {
   const db = getDb();
   const t = track('READ LINQS');
@@ -472,6 +505,12 @@ export async function upsertBundle(
 export async function markBundleDirty(id: string): Promise<void> {
   const db = getDb();
   await db.runAsync('UPDATE bundles SET dirty = 1 WHERE id = ?', [id]);
+}
+
+/** Update only file name (local rename before/after sync). */
+export async function updateFileName(id: string, name: string): Promise<void> {
+  const db = getDb();
+  await db.runAsync('UPDATE files SET name = ? WHERE id = ?', [name, id]);
 }
 
 /** Update only bundle name (used for mobile-only Linq title backfill). */

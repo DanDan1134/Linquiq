@@ -1,11 +1,14 @@
+import { logSafeError } from "@/lib/safeLog";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { s3Client, bucketName } from "@/lib/server/s3/module.s3client";
 import { getFileDataForUser } from "@/lib/server/getFileData";
 import {
+  MAX_FILE_BYTES,
   mimeForFileName,
   normalizeMimeType,
+  safeContentDispositionFilename,
 } from "@/lib/server/uploadValidation";
 
 /**
@@ -28,10 +31,21 @@ export async function GET(
   }
 
   try {
+    const objectKey = `${userId}/${fileData.file_id}`;
+    const head = await s3Client.send(
+      new HeadObjectCommand({
+        Bucket: bucketName,
+        Key: objectKey,
+      })
+    );
+    if ((head.ContentLength ?? 0) > MAX_FILE_BYTES) {
+      return NextResponse.json({ message: "File too large" }, { status: 413 });
+    }
+
     const result = await s3Client.send(
       new GetObjectCommand({
         Bucket: bucketName,
-        Key: `${userId}/${fileData.file_id}`,
+        Key: objectKey,
       })
     );
 
@@ -45,7 +59,7 @@ export async function GET(
     const contentType =
       normalizeMimeType(result.ContentType) || fallbackMime;
 
-    const safeName = String(fileData.name || "file").replace(/"/g, "");
+    const safeName = safeContentDispositionFilename(fileData.name);
 
     return new NextResponse(Buffer.from(bytes), {
       status: 200,
@@ -58,7 +72,7 @@ export async function GET(
       },
     });
   } catch (err) {
-    console.error("content stream failed", err);
+    logSafeError("content stream", err);
     return NextResponse.json(
       { message: "Error reading file content" },
       { status: 500 }

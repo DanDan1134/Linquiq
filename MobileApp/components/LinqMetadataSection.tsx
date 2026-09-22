@@ -1,10 +1,9 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, Clipboard, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { FontAwesomeIcon } from "./AppIcon";
-import { faCopy, faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
+import { faChevronDown, faChevronUp } from "@fortawesome/free-solid-svg-icons";
 import {
   getLinqDetailFields,
-  getFilePreviewUrl,
   getFilePreviewUrlLabel,
   isFilePreviewUrlLive,
 } from "../utils/helpers";
@@ -61,54 +60,34 @@ function MetadataUrlRow({
   dirty?: number | boolean | null;
   isOnline?: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
   const id = String(fileId ?? "").trim();
   if (!id) return null;
 
   const urlLabel = getFilePreviewUrlLabel(id);
-  const liveUrl = getFilePreviewUrl(id);
+  if (!urlLabel) return null;
+
+  const liveUrl = urlLabel;
   const isLive = isFilePreviewUrlLive(id, {
     dirty: dirty ?? undefined,
     isOnline,
   });
 
-  const handleCopy = () => {
-    const toCopy = liveUrl || urlLabel;
-    if (!toCopy) return;
-    Clipboard.setString(toCopy);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
+  // Copying happens from the header's Copy button now, not inline here.
   return (
     <View style={styles.row}>
       <Text style={styles.label}>Link</Text>
       {isLive && liveUrl ? (
-        <>
-          <TouchableOpacity
-            onPress={() => void openHttpUrl(liveUrl)}
-            activeOpacity={0.75}
-            accessibilityRole="link"
-            accessibilityLabel={`Open ${liveUrl}`}
-            style={styles.linkTouch}
-          >
-            <Text style={styles.link} numberOfLines={1} ellipsizeMode="tail">
-              {liveUrl}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleCopy}
-            accessibilityLabel="Copy file link"
-            accessibilityRole="button"
-            style={styles.copyButton}
-          >
-            <FontAwesomeIcon
-              icon={faCopy}
-              size={14}
-              color={copied ? "#86EFAC" : "#9CA3AF"}
-            />
-          </TouchableOpacity>
-        </>
+        <TouchableOpacity
+          onPress={() => void openHttpUrl(liveUrl)}
+          activeOpacity={0.75}
+          accessibilityRole="link"
+          accessibilityLabel={`Open ${liveUrl}`}
+          style={styles.linkTouch}
+        >
+          <Text style={styles.link} numberOfLines={1} ellipsizeMode="tail">
+            {liveUrl}
+          </Text>
+        </TouchableOpacity>
       ) : (
         <Text style={styles.value} numberOfLines={1} ellipsizeMode="tail" selectable>
           {urlLabel}
@@ -262,12 +241,5 @@ const styles = StyleSheet.create({
     color: "#60A5FA",
     fontSize: 12,
     textDecorationLine: "underline",
-  },
-  copyButton: {
-    marginLeft: 4,
-    minWidth: 48,
-    minHeight: 48,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });

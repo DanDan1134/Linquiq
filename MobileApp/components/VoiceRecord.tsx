@@ -15,6 +15,7 @@ import {
   exitRecordingAudioMode,
 } from "../utils/permissions";
 import { track } from "../utils/perfLog";
+import { logSafeError, logSafeWarn } from "../utils/safeLog";
 
 export type FileItem = {
   id: number;
@@ -155,7 +156,7 @@ export const useVoiceRecord = ({
       t.done("now recording");
     } catch (err) {
       t.fail("could not start", err);
-      console.error("Failed to start recording", err);
+      logSafeError("Failed to start recording", err);
       Alert.alert("Error", "Failed to start recording.");
     } finally {
       setIsAudioRequesting(false);
@@ -188,7 +189,7 @@ export const useVoiceRecord = ({
         durationMs = (status as any)?.durationMillis ?? 0;
         await sound.unloadAsync();
       } catch (soundErr) {
-        console.warn("Failed to compute recording duration", soundErr);
+        logSafeWarn("Failed to compute recording duration", soundErr);
       }
       t.step("length measured");
 
@@ -223,7 +224,7 @@ export const useVoiceRecord = ({
       onRecordingSaved?.(newRecordingItem);
     } catch (err) {
       t.fail("could not save", err);
-      console.error("Failed to stop recording", err);
+      logSafeError("Failed to stop recording", err);
       Alert.alert("Error", "Failed to save the recording.");
     } finally {
       setIsRecordingActive(false);
@@ -286,7 +287,7 @@ export const useVoiceRecord = ({
         try {
           recordingRef.current.stopAndUnloadAsync();
         } catch (err) {
-          console.warn("Failed to cleanup recording on unmount", err);
+          logSafeWarn("Failed to cleanup recording on unmount", err);
         }
       }
     };

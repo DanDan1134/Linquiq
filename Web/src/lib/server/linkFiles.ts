@@ -19,6 +19,7 @@ export const linkFiles = async (
 
     const links: typeof linkTable.$inferSelect[] = [];
     for (const to_id of to_ids) {
+        if (to_id === from_id) continue;
         const link = await db
             .insert(linkTable)
             .values({

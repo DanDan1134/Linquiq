@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { getAuthedUserId } from "@/lib/server/getAuthedUserId";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { entryTable } from "@/db/schema";
 import { genPresignedUrl } from "@/lib/server/s3/module.genPresignedUrl";
+import { isEntryUuid, isLinqType } from "@/lib/linqType";
 
 const MAX_IDS = 40;
 
@@ -13,7 +14,7 @@ const MAX_IDS = 40;
  * Returns: { urls: Record<string, string> } — missing/unauthorized ids omitted.
  */
 export async function POST(req: NextRequest) {
-  const { userId } = await auth();
+  const userId = await getAuthedUserId(req);
   if (!userId) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
@@ -25,12 +26,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: "Invalid JSON" }, { status: 400 });
   }
 
-  const rawIds = Array.isArray((body as any)?.ids) ? (body as any).ids : [];
+  const idsFromBody =
+    body && typeof body === "object" && "ids" in body
+      ? (body as { ids?: unknown }).ids
+      : undefined;
+  const rawIds = Array.isArray(idsFromBody) ? idsFromBody : [];
   const ids = [
     ...new Set(
       rawIds
         .map((id: unknown) => String(id ?? "").trim())
-        .filter((id: string) => id.length > 0 && !id.startsWith("opt-"))
+        .filter((id: string) => id.length > 0 && !id.startsWith("opt-") && isEntryUuid(id))
     ),
   ].slice(0, MAX_IDS);
 
@@ -52,15 +57,13 @@ export async function POST(req: NextRequest) {
     rows.map(async (row) => {
       const s3Key = String(row.file_id ?? "").trim();
       if (!s3Key) return;
-      const type = String(row.type ?? "").toLowerCase();
-      // Linqs have no single S3 object to presign.
-      if (type === "link" || type === "bundle" || type === "linq") return;
+      if (isLinqType(row.type)) return;
       try {
         const url = await genPresignedUrl({
           profile_id: userId,
           key: s3Key,
           method: "GET",
-          expirationInSec: 3600,
+          expirationInSec: 300,
         });
         if (url) urls[String(row.id)] = url;
       } catch {

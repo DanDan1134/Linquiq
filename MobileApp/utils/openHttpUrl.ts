@@ -1,3 +1,4 @@
+import { logSafeError, logSafeWarn } from "./safeLog";
 import { Alert, Linking, Platform } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as WebBrowser from "expo-web-browser";
@@ -36,39 +37,6 @@ function normalizeFileCandidate(raw: string): string {
   return s;
 }
 
-function extensionFromSource(urlOrPath: string): string {
-  const clean = String(urlOrPath).split("?")[0].split("#")[0];
-  const match = clean.match(/\.([A-Za-z0-9]{1,10})$/);
-  if (!match) return "";
-  return `.${match[1].toLowerCase()}`;
-}
-
-function extensionFromContentType(contentType?: string): string {
-  const c = String(contentType ?? "").toLowerCase().trim();
-  if (!c) return "";
-  const map: Record<string, string> = {
-    "application/pdf": ".pdf",
-    "application/msword": ".doc",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-      ".docx",
-  };
-  if (map[c]) return map[c];
-  if (!c.includes("/")) return c.startsWith(".") ? c : `.${c}`;
-  return "";
-}
-
-function mimeFromContentType(contentType?: string): string | undefined {
-  const ct = String(contentType ?? "").trim().toLowerCase();
-  if (!ct) return undefined;
-  if (ct === "pdf") return "application/pdf";
-  if (ct === "doc") return "application/msword";
-  if (ct === "docx") {
-    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-  }
-  if (ct.includes("/")) return ct;
-  return undefined;
-}
-
 async function tryOpenLocalFile(
   fileUri: string,
   preferredMime?: string
@@ -89,7 +57,7 @@ async function tryOpenLocalFile(
       });
       return true;
     } catch (e) {
-      console.warn("[openHttpUrl] Android VIEW content intent failed:", e);
+      logSafeWarn("[openHttpUrl] Android VIEW content intent failed", e);
       try {
         const IntentLauncher = await import("expo-intent-launcher");
         await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
@@ -99,7 +67,7 @@ async function tryOpenLocalFile(
         });
         return true;
       } catch (fallbackError) {
-        console.warn("[openHttpUrl] Android VIEW file intent failed:", fallbackError);
+        logSafeWarn("[openHttpUrl] Android VIEW file intent failed", fallbackError);
       }
     }
   }
@@ -108,68 +76,10 @@ async function tryOpenLocalFile(
     await Linking.openURL(fileUri);
     return true;
   } catch (e) {
-    console.warn("[openHttpUrl] Linking.openURL(file) failed:", e);
+    logSafeWarn("[openHttpUrl] Linking.openURL(file) failed", e);
   }
 
   return false;
-}
-
-export async function openDocumentFromLocalOrDownload(opts: {
-  sourceUri: string | null | undefined;
-  fileName?: string;
-  contentType?: string;
-}): Promise<void> {
-  const source = normalizeFileCandidate(String(opts.sourceUri ?? "").trim());
-  if (!source) {
-    Alert.alert("File not ready", "This document does not have a valid URL yet.");
-    return;
-  }
-
-  let localPath = source;
-  const mimeHint =
-    mimeFromContentType(opts.contentType) ||
-    guessMimeTypeFromUri(String(opts.fileName ?? "")) ||
-    guessMimeTypeFromUri(source) ||
-    "application/pdf";
-  if (/^https?:\/\//i.test(source)) {
-    const ext =
-      extensionFromSource(source) ||
-      extensionFromSource(opts.fileName ?? "") ||
-      extensionFromContentType(opts.contentType) ||
-      ".pdf";
-    const fileStem = String(opts.fileName ?? "document")
-      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_")
-      .replace(/\.[A-Za-z0-9]{1,10}$/i, "")
-      .slice(0, 80) || "document";
-    const baseDir =
-      FileSystem.cacheDirectory || FileSystem.documentDirectory || "";
-    if (!baseDir) {
-      Alert.alert("Couldn't open file", "Local storage is unavailable.");
-      return;
-    }
-    const outPath = `${baseDir}linquiq_open/${fileStem}_${Date.now()}${ext}`;
-    try {
-      await FileSystem.makeDirectoryAsync(`${baseDir}linquiq_open`, {
-        intermediates: true,
-      });
-    } catch {
-      // ignore: may already exist
-    }
-    const download = await FileSystem.downloadAsync(source, outPath);
-    if (download.status !== 200) {
-      Alert.alert("Couldn't open file", `Download failed (${download.status}).`);
-      return;
-    }
-    localPath = download.uri || outPath;
-  }
-
-  const ok = await tryOpenLocalFile(localPath, mimeHint);
-  if (!ok) {
-    Alert.alert(
-      "Couldn't open file",
-      "No installed app can open this document. Install a PDF/document app and try again."
-    );
-  }
 }
 
 /** Opens http(s) links in the system browser when possible, otherwise in-app Safari/Chrome; file:// uses the OS handler. */
@@ -203,12 +113,12 @@ export async function openHttpUrl(url: string | null | undefined): Promise<void>
     await Linking.openURL(u);
     return;
   } catch (e) {
-    console.warn("Linking.openURL failed, trying in-app browser", e);
+    logSafeWarn("Linking.openURL failed, trying in-app browser", e);
   }
   try {
     await WebBrowser.openBrowserAsync(u);
   } catch (e2) {
-    console.error(e2);
+    logSafeError("openHttpUrl fallback failed", e2);
     Alert.alert(
       "Couldn't open link",
       "Copy the URL and paste it into your browser."

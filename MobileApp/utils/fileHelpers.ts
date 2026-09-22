@@ -1,4 +1,5 @@
 // File extension sets for categorization
+import { logSafeWarn } from "./safeLog";
 const IMG_EXT = new Set(["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "heif"]);
 const AUD_EXT = new Set(["mp3", "m4a", "aac", "wav", "ogg", "caf"]);
 const VID_EXT = new Set(["mp4", "mov", "webm", "m4v", "avi", "wmv"]);
@@ -126,6 +127,28 @@ export function isHeicSource(uri: string, hints?: HeicHints): boolean {
 }
 
 /**
+ * Re-encode still images so GPS/EXIF is not kept. Leaves video/audio/PDF alone.
+ */
+export async function stripImageLocation(
+  uri: string,
+  destExt?: string
+): Promise<string> {
+  const e = String(destExt ?? pickExtensionFromUri(uri, "")).replace(/^\./, "").toLowerCase();
+  if (!["jpg", "jpeg", "png", "webp", "heic", "heif"].includes(e)) {
+    return uri;
+  }
+  try {
+    const { manipulateAsync, SaveFormat } = await import("expo-image-manipulator");
+    const format = e === "png" ? SaveFormat.PNG : SaveFormat.JPEG;
+    const out = await manipulateAsync(uri, [], { compress: 0.92, format });
+    return out.uri || uri;
+  } catch (error) {
+    logSafeWarn("Failed to strip image metadata, using original", error);
+    return uri;
+  }
+}
+
+/**
  * Converts HEIC/HEIF to JPEG for PC/web compatibility and to avoid upload OOM (blob fallback).
  * Caps max width to reduce native decode memory on large photos.
  */
@@ -151,7 +174,7 @@ export async function convertHeicToJpeg(
       return out.uri;
     }
   } catch (error) {
-    console.warn("Failed to convert HEIC/HEIF to JPEG, using original:", error);
+    logSafeWarn("Failed to convert HEIC/HEIF to JPEG, using original", error);
     return uri;
   }
 }

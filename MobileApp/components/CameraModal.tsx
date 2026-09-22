@@ -15,6 +15,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { FontAwesomeIcon } from "./AppIcon";
 import { faXmark, faCamera, faRotate } from "@fortawesome/free-solid-svg-icons";
 import { track } from "../utils/perfLog";
+import { logSafeWarn } from "../utils/safeLog";
 import "../global.css";
 
 interface CameraModalProps {
@@ -37,7 +38,7 @@ export const CameraModal: React.FC<CameraModalProps> = ({
   useEffect(() => {
     if (isVisible && permission && !permission.granted && permission.canAskAgain) {
       requestPermission().catch((e) =>
-        console.warn("[camera] permission request failed", e)
+        logSafeWarn("[camera] permission request failed", e)
       );
     }
   }, [isVisible, permission, requestPermission]);
