@@ -18,7 +18,9 @@ const securityHeaders = [
       `frame-src 'self' ${clerkFrame}`,
       "frame-ancestors 'self'",
       "base-uri 'self'",
-      "form-action 'self'",
+      // Clerk Account Portal / email OTP may POST then redirect cross-origin;
+      // Chrome enforces form-action on those redirects — allow Clerk hosts.
+      "form-action 'self' https://*.clerk.accounts.dev https://*.clerk.com",
     ].join("; "),
   },
 ];
